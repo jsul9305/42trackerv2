@@ -34,8 +34,7 @@ def main():
     app.run(
         host=WEBAPP_HOST,
         port=WEBAPP_PORT,
-        debug=WEBAPP_DEBUG,
-        use_reloader=WEBAPP_DEBUG  # 개발 모드일 때만 자동 리로드
+        debug=WEBAPP_DEBUG
     )
 
 if __name__ == "__main__":

@@ -49,7 +49,8 @@ class SmartchipParser(BaseParser):
         
         # 1) 상세 페이지 확보 (진행중/종료 자동 구분)
         if usedata and bib:
-            soup, state = self._resolve_detail_soup(usedata, bib)
+            host = context.get('host')
+            soup, state = self._resolve_detail_soup(usedata, bib, host)
         else:
             soup = self._make_soup(html)
             state = "unknown"
@@ -81,17 +82,17 @@ class SmartchipParser(BaseParser):
         우선순위: v1 → v2 → v3
         """
         # v1: <table class="result-table">
-        result = self._parse_table_v1(soup)
-        if result['splits']:
-            return result
+        result_v1 = self._parse_table_v1(soup)
+        if result_v1 and result_v1.get('splits'):
+            return result_v1
         
         # v2: POINT | TIME | TIME OF DAY | PACE 헤더
-        result = self._parse_table_v2(soup)
-        if result['splits']:
-            return result
+        result_v2 = self._parse_table_v2(soup)
+        if result_v2 and result_v2.get('splits'):
+            return result_v2
         
         # v3: td.userinfo 반복
-        return self._parse_table_v3(soup)
+        return self._parse_table_v3(soup) or result_v2 or result_v1 or {"splits": [], "summary": {}, "assets": []}
     
     def _parse_table_v1(self, soup: BeautifulSoup) -> Dict[str, Any]:
         """
@@ -307,6 +308,7 @@ class SmartchipParser(BaseParser):
         self, 
         usedata: str, 
         bib: str, 
+        host: Optional[str] = "smartchip.co.kr",
         timeout: int = 10
     ) -> Tuple[Optional[BeautifulSoup], str]:
         """
@@ -318,10 +320,12 @@ class SmartchipParser(BaseParser):
         """
         session = get_session()
         
+        target_host = host or "smartchip.co.kr"
+        
         # 1) 진행 중 페이지 시도
         soup1 = self._fetch_url_both_schemes(
             f"/Expectedrecord_data.asp?usedata={usedata}&nameorbibno={bib}",
-            session,
+            target_host, session,
             timeout
         )
         if soup1 and self._has_split_table(soup1):
@@ -330,7 +334,7 @@ class SmartchipParser(BaseParser):
         # 2) 종료 페이지 시도
         soup2 = self._fetch_url_both_schemes(
             f"/return_data_livephoto.asp?usedata={usedata}&nameorbibno={bib}",
-            session,
+            target_host, session,
             timeout
         )
         if soup2 and self._has_split_table(soup2):
@@ -342,12 +346,13 @@ class SmartchipParser(BaseParser):
     def _fetch_url_both_schemes(
         self, 
         url_path: str, 
+        host: str,
         session, 
         timeout: int = 10
     ) -> Optional[BeautifulSoup]:
         """https/http 양쪽 시도"""
         for scheme in ("https://", "http://"):
-            url = scheme + "smartchip.co.kr" + (url_path if url_path.startswith("/") else "/" + url_path)
+            url = scheme + host + (url_path if url_path.startswith("/") else "/" + url_path)
             try:
                 r = session.get(url, timeout=timeout, allow_redirects=True)
                 r.raise_for_status()

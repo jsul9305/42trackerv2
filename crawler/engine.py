@@ -213,14 +213,18 @@ class CrawlerEngine:
             # 병렬 작업 결과 수집
             for future in as_completed(futures):
                 try:
-                    results.append(future.result())
+                    result = future.result()
+                    if result and isinstance(result, tuple):
+                        results.append(result)
                 except Exception as e:
                     print(f"[err] thread -> {type(e).__name__}: {e}")
         
         # MyResult 직렬 처리
         for pid, url, bib, usedata in myresult_jobs:
             try:
-                results.append(self._crawl_one(pid, url, bib, usedata))
+                result = self._crawl_one(pid, url, bib, usedata)
+                if result and isinstance(result, tuple):
+                    results.append(result)
             except Exception as e:
                 print(f"[err] myresult -> {type(e).__name__}: {e}")
         
@@ -244,11 +248,11 @@ class CrawlerEngine:
         host = urllib.parse.urlsplit(url).hostname or ""
         
         # 파싱
-        data = parse(html, host=host, url=url, usedata=usedata, bib=bib)
+        data = parse(html, host=host, url=url, usedata=usedata, bib=bib) or {}
         
         # MyResult JSON 특별 처리
         if isinstance(html, str) and html.startswith("JSON::"):
-            data = self._handle_myresult_json(html, url, host, data)
+            data = self._handle_myresult_json(html, url, host, data) or data
         
         # 결과 추출
         splits = data.get("splits", []) or []
@@ -287,7 +291,7 @@ class CrawlerEngine:
         # HTML에서 Finish 정보 추출
         try:
             html2 = get_mr_worker().fetch(url, timeout=10) or ""
-            if not html2:
+            if not html2 or html2.startswith("JSON::"):
                 return data
             
             soup = BeautifulSoup(html2, "html.parser")

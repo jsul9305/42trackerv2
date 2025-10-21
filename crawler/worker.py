@@ -3,7 +3,7 @@ from queue import Queue, Empty
 from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 
 # 전역 변수 수정
-_MR_WORKER_POOL = None
+_MR_WORKER = None
 _MR_WORKER_LOCK = threading.Lock()
 
 class _MyResultWorker:
@@ -139,11 +139,12 @@ class _MyResultWorkerPool:
         return worker.fetch(url, timeout)
 
 def get_mr_worker():
-    global _MR_WORKER_POOL
+    """MyResult 워커 인스턴스를 반환 (싱글톤)"""
+    global _MR_WORKER
     with _MR_WORKER_LOCK:
-        if _MR_WORKER_POOL is None:
-            _MR_WORKER_POOL = _MyResultWorkerPool(pool_size=3)
-    return _MR_WORKER_POOL
+        if _MR_WORKER is None:
+            _MR_WORKER = _MyResultWorker()
+    return _MR_WORKER
 
 def get_mr_worker() -> _MyResultWorker:
     global _MR_WORKER

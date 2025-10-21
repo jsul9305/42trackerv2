@@ -121,7 +121,8 @@ def parse(
             }
             
             result = parser.parse(html, **context)
-            return _ensure_defaults(result)
+            if result:
+                return _ensure_defaults(result)
         
         except Exception as e:
             print(f"[warn] domain parser failed ({host_lower}): {type(e).__name__}: {e}")
