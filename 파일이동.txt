@@ -1,0 +1,64 @@
+📁 crawler/fetcher.py
+_fetch()
+_fetch_cached()
+_fetch_html_follow_js_redirect()
+_CACHE (변수)
+_CACHE_TTL (변수)
+📁 crawler/worker.py
+_MyResultWorker (클래스)
+_MyResultWorkerPool (클래스)
+_get_mr_worker()
+_MR_WORKER (변수)
+_MR_WORKER_LOCK (변수)
+📁 crawler/engine.py
+_crawl_one()
+main_loop()
+📁 crawler/scheduler.py
+last_run (변수 → 클래스 속성)
+last_fetch (변수 → 클래스 속성)
+(스케줄링 로직)
+📁 webapp/services/marathon.py
+MarathonService (클래스)
+- list_marathons()
+- create_marathon()
+- update_marathon()
+- get_marathon()
+📁 webapp/services/participant.py
+ParticipantService (클래스)
+- list_participants()
+- create_participant()
+- delete_participant()
+- get_participant_data()
+- normalize_bib_for_spct()
+📁 webapp/services/prediction.py
+PredictionService (클래스)
+- calculate_prediction()
+- check_finish_status()
+- _is_finish_label()
+- _check_finish_status() → check_finish_status()
+📁 webapp/services/records.py
+RecordsService (클래스)
+- get_all_records()
+- _pick_best_record_for_participant()
+- _sort_key()
+- _max_split_km()
+📁 webapp/routes/api.py
+api_list_marathons()
+api_create_marathon()
+api_update_marathon()
+api_list_participants()
+api_create_participant()
+api_delete_participant()
+api_participant_data()
+api_debug_participant()
+api_records()
+📁 webapp/routes/pages.py
+page_index()
+page_race_mid()
+page_race_qs()
+page_admin()
+ui_records()
+📁 webapp/routes/static_routes.py
+_serve_static()
+📁 webapp/app.py
+create_app() (Flask 앱 팩토리)
