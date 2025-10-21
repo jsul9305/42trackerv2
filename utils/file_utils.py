@@ -2,7 +2,7 @@ import requests, urllib, os, re, threading
 from urllib.parse import urlsplit
 from config.settings import VERIFY_YN, BASE_DIR, CERT_DIR
 from config.constants import DEFAULT_HEADERS
-from network_utils import _SESSION
+from utils.network_utils import _SESSION
 
 def safe_filepart(s: str) -> str:
     # 파일명 안전화(한글은 그대로 두고, 위험 문자만 제거)
