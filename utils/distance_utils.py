@@ -1,4 +1,4 @@
-from config.constants import STANDARD_DISTANCES, FULL_KM, HALF_KM, KM_RX
+from config.constants import STANDARD_DISTANCES, FULL_KM, HALF_KM, KM_RX,FINISH_KEYWORDS_EN, FINISH_KEYWORDS_KO
 import re
 
 def km_from_label(label: str) -> float | None:
@@ -6,6 +6,14 @@ def km_from_label(label: str) -> float | None:
         return None
     # e.g., "5km", "5.0km", "10.5 km"
     m = re.search(r"(\d+(?:\.\d+)?)\s*km", label, re.I)
+    if m:
+        try:
+            return float(m.group(1))
+        except Exception:
+            return None
+    
+    # 숫자만 있는 경우 (e.g., "42.195")
+    m = re.fullmatch(r"(\d+(?:\.\d+)?)", label.strip())
     if m:
         try:
             return float(m.group(1))
@@ -101,3 +109,48 @@ def dist_from_label(lbl: str | None) -> float | None:
     if "5"  in s and ("k" in s or "km" in s): return 5.0
     if "3"  in s and ("k" in s or "km" in s): return 3.0
     return None
+
+_ZWSP_RE = re.compile(r"[\u200b\u200c\u200d\uFEFF]")
+_WS_RE   = re.compile(r"\s+")
+
+def _clean_text(s: str) -> str:
+    if not isinstance(s, str):
+        return ""
+    s = _ZWSP_RE.sub("", s)          # 제로폭 문자 제거
+    s = s.replace("\xa0", " ")       # NBSP 정규화
+    s = s.strip()
+    s = _WS_RE.sub(" ", s)           # 연속 공백 1칸
+    return s
+
+def is_finish_label(label: str) -> bool:
+    raw = _clean_text(label)
+    low = raw.lower()
+    return any(k in raw for k in FINISH_KEYWORDS_KO) or any(k in low for k in FINISH_KEYWORDS_EN)
+
+def ensure_finish_label(splits, race_total_km=None):
+    """마지막 스플릿이 완주로 간주되면 point_label을 Finish로 보강."""
+    if not isinstance(splits, list) or not splits:
+        return splits
+    last = splits[-1]
+    label = _clean_text(last.get("point_label") or "")
+    if is_finish_label(label):
+        return splits
+    km = last.get("point_km")
+    try:
+        kmf = float(km) if km is not None else None
+    except Exception:
+        kmf = None
+    if race_total_km:
+        try:
+            target = float(race_total_km)
+        except Exception:
+            target = None
+    else:
+        target = None
+
+    # 거리 기반 판정
+    if target is not None and kmf is not None and kmf >= target - 1.0:
+        last["point_label"] = "Finish"
+    elif target is None and kmf is not None and 41.5 <= kmf <= 43.0:
+        last["point_label"] = "Finish"
+    return splits

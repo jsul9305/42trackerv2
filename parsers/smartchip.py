@@ -46,10 +46,10 @@ class SmartchipParser(BaseParser):
         """
         usedata = context.get('usedata')
         bib = context.get('bib')
+        host = context.get('host')
         
         # 1) 상세 페이지 확보 (진행중/종료 자동 구분)
         if usedata and bib:
-            host = context.get('host')
             soup, state = self._resolve_detail_soup(usedata, bib, host)
         else:
             soup = self._make_soup(html)
@@ -62,10 +62,13 @@ class SmartchipParser(BaseParser):
         # 2) 테이블 파싱
         parsed = self._parse_table(soup)
         
+        # 에셋 추출
+        parsed['assets'] = self._extract_assets(soup, host)
+        
         # 3) 거리 메타데이터 추출 및 정규화
         race_label, race_total_km = self._extract_and_normalize_distance(
             soup, 
-            parsed['splits']
+            parsed.get('splits')
         )
         
         parsed['race_label'] = race_label
@@ -108,7 +111,7 @@ class SmartchipParser(BaseParser):
         
         rows = []
         for tr in table.select("tr")[1:]:  # 헤더 제외
-            tds = [td.get_text(" ", strip=True) for td in tr.select("td")]
+            tds = [td.get_text(" ", strip=True) for td in tr.find_all("td")]
             if len(tds) < 4:
                 continue
             
@@ -217,6 +220,37 @@ class SmartchipParser(BaseParser):
         
         return {"splits": rows, "summary": {}, "assets": []}
     
+    def _extract_assets(self, soup: BeautifulSoup, host: str) -> List[Dict[str, Any]]:
+        """라이브포토, 기록증 등 이미지 에셋 추출"""
+        assets = []
+        base_url = f"https://{host or 'smartchip.co.kr'}"
+
+        # 1. 기록증 (<a> 태그)
+        for link in soup.select('a[href*="certificate"]'):
+            href = link.get('href')
+            if href:
+                cert_url = urllib.parse.urljoin(base_url, href)
+                if not any(a['url'] == cert_url for a in assets):
+                    assets.append({
+                        "kind": "certificate",
+                        "host": host,
+                        "url": cert_url
+                    })
+
+        # 2. 라이브포토 (<img> 태그)
+        for img in soup.select('img[src*="livephoto"]'):
+            src = img.get('src')
+            if src:
+                img_url = urllib.parse.urljoin(base_url, src)
+                if not any(a['url'] == img_url for a in assets):
+                    assets.append({
+                        "kind": "livephoto",
+                        "host": host,
+                        "url": img_url
+                    })
+        
+        return assets
+
     # ============= 거리 메타데이터 =============
     
     def _extract_and_normalize_distance(

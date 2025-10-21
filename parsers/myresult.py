@@ -246,22 +246,33 @@ class MyResultParser(BaseParser):
     ) -> List[Dict[str, str]]:
         """
         기록증 이미지 추출
-        
-        예시: <img src="/upload/certificate/127/2342.jpg">
+        - <img> 태그의 src
+        - <a> 태그의 href
         """
         assets = []
-        
-        img = soup.select_one('img[src*="/upload/certificate/"]')
-        if img and img.get("src"):
-            src = img["src"]
-            base_host = f"https://{host or 'www.myresult.co.kr'}"
-            cert_url = urllib.parse.urljoin(base_host, src)
-            
-            assets.append({
-                "kind": "certificate",
-                "host": host,
-                "url": cert_url
-            })
+        base_host = f"https://{host or 'www.myresult.co.kr'}"
+
+        # <img> 태그에서 찾기
+        for img in soup.select('img[src*="/upload/certificate/"]'):
+            if img.get("src"):
+                cert_url = urllib.parse.urljoin(base_host, img["src"])
+                if not any(a['url'] == cert_url for a in assets):
+                    assets.append({
+                        "kind": "certificate",
+                        "host": host,
+                        "url": cert_url
+                    })
+
+        # <a> 태그에서 찾기
+        for link in soup.select('a[href*="/upload/certificate/"]'):
+            if link.get("href"):
+                cert_url = urllib.parse.urljoin(base_host, link["href"])
+                if not any(a['url'] == cert_url for a in assets):
+                    assets.append({
+                        "kind": "certificate",
+                        "host": host,
+                        "url": cert_url
+                    })
         
         return assets
     

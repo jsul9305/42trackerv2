@@ -1,7 +1,7 @@
 # crawler/engine.py
 """크롤링 엔진 - 메인 루프 및 작업 조정"""
 
-import time
+import time, os
 import random
 import urllib.parse
 import threading
@@ -14,13 +14,19 @@ from typing import Dict, List, Tuple, Any, Optional
 from bs4 import BeautifulSoup
 
 from core.database import get_db, init_database, migrate_database
+from config.settings import BASE_DIR, CERT_DIR
 from crawler.fetcher import fetch_cached
 from crawler.worker import get_mr_worker
 from parsers.utils import parse
 from parsers.myresult import MyResultParser, extract_total_net_time
 from utils.time_utils import first_time, looks_time
 from utils.file_utils import save_certificate_to_disk
+from utils.network_utils import get_session
+from utils.distance_utils import ensure_finish_label
 from config.settings import CRAWLER_MAX_WORKERS
+
+import traceback
+import json
 
 
 class CrawlerEngine:
@@ -55,6 +61,23 @@ class CrawlerEngine:
         
         # 실행 상태
         self.running = False
+
+    def _dbg_preview_list(self, lst, n: int = 3) -> str:
+        try:
+            if not isinstance(lst, list):
+                return f"type={type(lst).__name__}"
+            out = []
+            for i, x in enumerate(lst[:n]):
+                xtype = type(x).__name__
+                xrepr = repr(x)
+                if len(xrepr) > 200:
+                    xrepr = xrepr[:200] + "...(trunc)"
+                out.append(f"[{i}] {xtype}: {xrepr}")
+            if len(lst) > n:
+                out.append(f"... (+{len(lst)-n} more)")
+            return " | ".join(out)
+        except Exception as e:
+            return f"<preview_error:{e}>"
     
     # ============= 메인 루프 =============
     
@@ -63,6 +86,14 @@ class CrawlerEngine:
         print("[Engine] Initializing...")
         init_database()
         migrate_database()
+
+        # 세션 워밍업 (선택)
+        try:
+            s = get_session()
+            print(f"[Engine] HTTP session ready: {type(s).__name__}")
+        except Exception as e:
+            print(f"[fatal] HTTP session init failed: {e}")
+            raise
         
         print("[Engine] Starting image workers...")
         self._start_image_workers(num_workers=3)
@@ -141,7 +172,7 @@ class CrawlerEngine:
             results = self._crawl_participants(marathon, participants)
             
             # DB 업데이트
-            self._save_results(results, marathon)
+            self._save_results(results, marathon, participants)
             
             duration = round(time.time() - tick, 2)
             print(f"[ok] mid={mid} participants={len(participants)} dur={duration}s")
@@ -182,6 +213,7 @@ class CrawlerEngine:
         results = []
         futures = []
         myresult_jobs = []
+        future_ctx = {}  # ✅ future → (pid, url, bib)
         
         # 작업 분배
         with ThreadPoolExecutor(max_workers=CRAWLER_MAX_WORKERS) as executor:
@@ -209,6 +241,8 @@ class CrawlerEngine:
                         pid, url, p["nameorbibno"], usedata
                     )
                     futures.append(future)
+                    future_ctx[future] = (pid, url, p["nameorbibno"])  # ✅ 컨텍스트 저장
+
             
             # 병렬 작업 결과 수집
             for future in as_completed(futures):
@@ -216,8 +250,13 @@ class CrawlerEngine:
                     result = future.result()
                     if result and isinstance(result, tuple):
                         results.append(result)
+                    else:
+                        ctx = future_ctx.get(future, (None, None, None))
+                        print(f"[warn] future returned unexpected: type={type(result).__name__} ctx={ctx}")
                 except Exception as e:
-                    print(f"[err] thread -> {type(e).__name__}: {e}")
+                    ctx = future_ctx.get(future, (None, None, None))
+                    traceback.print_exc()
+                    print(f"[err] thread -> {type(e).__name__}: {e} | ctx(pid,url,bib)={ctx}")
         
         # MyResult 직렬 처리
         for pid, url, bib, usedata in myresult_jobs:
@@ -243,24 +282,116 @@ class CrawlerEngine:
         Returns:
             (participant_id, splits, meta, assets)
         """
+        # print(f"[dbg] crawl_one start pid={pid} bib={bib} url={url}")
         # HTML 페칭 (캐시 사용)
-        html = fetch_cached(url)
+        html = None
+        try:
+            html = fetch_cached(url)
+        except Exception as e:
+            traceback.print_exc()
+            print(f"[err] fetch_cached failed pid={pid} url={url}: {e}")
+            html = ""
         host = urllib.parse.urlsplit(url).hostname or ""
+        # print(f"[dbg] fetched host={host} len={len(html) if isinstance(html, (str, bytes)) else 'n/a'} pid={pid}")
         
         # 파싱
-        data = parse(html, host=host, url=url, usedata=usedata, bib=bib) or {}
+        try:
+            data = parse(html, host=host, url=url, usedata=usedata, bib=bib) or {}
+        except Exception as e:
+            traceback.print_exc()
+            print(f"[err] parse failed pid={pid} url={url}: {e}")
+            data = {}
+
+        if not isinstance(data, dict):
+            print(f"[warn] parse returned {type(data).__name__} → forcing dict | pid={pid} url={url}")
+            data = {}
         
-        # MyResult JSON 특별 처리
-        if isinstance(html, str) and html.startswith("JSON::"):
-            data = self._handle_myresult_json(html, url, host, data) or data
+        # MyResult JSON 특별 처리fsdfsdfsdfjl
+        try:
+            if isinstance(html, str) and html.startswith("JSON::"):
+                data2 = self._handle_myresult_json(html, url, host, data) or data
+                if not isinstance(data2, dict):
+                    print(f"[warn] _handle_myresult_json returned {type(data2).__name__} → keep original dict | pid={pid}")
+                else:
+                    data = data2
+        except Exception as e:
+            traceback.print_exc()
+            print(f"[err] _handle_myresult_json error pid={pid} url={url}: {e}")
         
-        # 결과 추출
-        splits = data.get("splits", []) or []
+        # ✅ 강제 정규화 + 프리뷰
+        raw_splits = data.get("splits") or []
+        raw_assets = data.get("assets") or []
+        if not isinstance(raw_splits, list):
+            print(f"[warn] splits is {type(raw_splits).__name__} (expected list) | pid={pid}")
+            raw_splits = []
+        if not isinstance(raw_assets, list):
+            print(f"[warn] assets is {type(raw_assets).__name__} (expected list) | pid={pid}")
+            raw_assets = []
+
+        # print(f"[dbg] raw splits len={len(raw_splits)} preview={self._dbg_preview_list(raw_splits)} | pid={pid}")
+        # print(f"[dbg] raw assets len={len(raw_assets)} preview={self._dbg_preview_list(raw_assets)} | pid={pid}")
+
+        splits = [r for r in raw_splits if isinstance(r, dict)]
+        assets = [a for a in raw_assets if isinstance(a, dict)]
+        if len(splits) != len(raw_splits):
+            print(f"[warn] filtered non-dict splits: {len(raw_splits) - len(splits)} removed | pid={pid}")
+        if len(assets) != len(raw_assets):
+            print(f"[warn] filtered non-dict assets: {len(raw_assets) - len(assets)} removed | pid={pid}")
+
         meta = {
             "race_label": data.get("race_label"),
             "race_total_km": data.get("race_total_km")
         }
-        assets = data.get("assets", []) or []
+        # ✅ 여기서 Finish 라벨 보강
+        splits = ensure_finish_label(splits, meta.get("race_total_km"))
+
+        if not assets:
+            inferred = []
+            h = (host or "").lower()
+            b = str(bib or "").strip()
+            u = str(usedata or "").strip()
+                
+            bib6 = b.zfill(6) if b.isdigit() else b
+            dest_dir = os.path.join(CERT_DIR, u)
+            base_name = f"{u}-{bib6}"
+            dest_path = os.path.join(dest_dir, base_name, ".jpg")
+
+            # 1) MyResult: https://myresult.co.kr/upload/certificate/{usedata}/{bib}
+            if "myresult.co.kr" in h and u and b:
+                inferred.append({
+                    "kind": "certificate",
+                    "host": "myresult.co.kr",
+                    "url": f"https://myresult.co.kr/upload/certificate/{u}/{b}"
+                })
+
+            # 2) SmartChip(기록증 뷰어 PHP): https://image.smartchip.co.kr/record_data/TriRun_Record.php?Rally_id={usedata}&Bally_no={bib}
+            #    (참고: 참조 페이지는 smartchip.co.kr/return_data_livephoto.asp?... 를 referer로 사용)
+            if "smartchip.co.kr" in h and u and b:
+                inferred.append({
+                    "kind": "certificate",
+                    "host": "image.smartchip.co.kr",
+                    "url": f"https://image.smartchip.co.kr/record_data/TriRun_Record.php?Rally_id={u}&Bally_no={b}"
+                })
+
+            # 3) SPCT(정적 이미지 직링크): https://img.spct.kr/PhotoResultsJPG/images/{usedata}/{usedata}-{bib6}.jpg
+            #    referer는 ResultsPhotoResults.php?EVENT_NO={usedata}&BIB_NO={bib_spct6} 를 사용해야 핫링크 방지 통과 확률↑
+            if ("spct.kr" in h or "img.spct.kr" in h) and u and b:
+                bib6 = b.zfill(6) if b.isdigit() else b
+                inferred.append({
+                    "kind": "certificate",
+                    "host": "img.spct.kr",
+                    "url": f"https://img.spct.kr/PhotoResultsJPG/images/{u}/{u}-{bib6}.jpg"
+                })
+
+            if inferred:
+                # 파서 결과 대신 폴백 사용
+                assets = inferred
+                # print(f"[dbg] inferred assets pid={pid} count={len(assets)} host={host} url={url}")
+            else:
+                print(f"[dbg] no assets pid={pid} url={url}")
+
+        if not assets: print(f"[dbg] no assets pid={pid} url={url}")
+        # print(f"[dbg] normalized splits={len(splits)} assets={len(assets)} meta={meta} | pid={pid}")
         
         return (pid, splits, meta, assets)
     
@@ -278,36 +409,40 @@ class CrawlerEngine:
         """
         if "myresult.co.kr" not in host.lower():
             return data
-        
-        # Finish 행 있는지 확인
+
+        splits = data.get("splits") or []
+        if not isinstance(splits, list):
+            print(f"[warn] MR splits not list ({type(splits).__name__}) url={url}")
+            return data
+
+        safe_splits = [r for r in splits if isinstance(r, dict)]
+        if len(safe_splits) != len(splits):
+            print(f"[warn] MR filtered non-dict splits: {len(splits) - len(safe_splits)} removed | url={url}")
+
+        # print(f"[dbg] MR precheck splits len={len(safe_splits)} preview={self._dbg_preview_list(safe_splits)} | url={url}")
+
         has_finish = any(
-            (r.get("point_label") or "").lower() == "finish"
-            for r in data.get("splits", [])
+            ((r.get("point_label") or "").lower() == "finish")
+            for r in safe_splits
         )
-        
         if has_finish:
             return data
-        
-        # HTML에서 Finish 정보 추출
+
         try:
             html2 = get_mr_worker().fetch(url, timeout=10) or ""
             if not html2 or html2.startswith("JSON::"):
                 return data
-            
+
             soup = BeautifulSoup(html2, "html.parser")
-            
-            # 대회 총 기록
             total = extract_total_net_time(soup)
-            
-            # 도착 시각
+
             finish_clock = ""
             for row in soup.select(".table-row.ant-row"):
                 cols = row.select(".ant-col")
                 if len(cols) >= 4 and "도착" in cols[0].get_text(" ", strip=True):
                     finish_clock = first_time(cols[1].get_text(" ", strip=True))
                     break
-            
-            # Finish 행 추가
+
             if looks_time(total):
                 data.setdefault("splits", []).append({
                     "point_label": "Finish",
@@ -316,10 +451,12 @@ class CrawlerEngine:
                     "pass_clock": finish_clock,
                     "pace": "",
                 })
-        
-        except Exception:
-            pass  # 실패해도 기존 데이터 유지
-        
+                print(f"[dbg] MR appended Finish total={total} clock={finish_clock} | url={url}")
+
+        except Exception as e:
+            traceback.print_exc()
+            print(f"[err] MR finish backfill failed url={url}: {e}")
+
         return data
     
     # ============= URL 생성 =============
@@ -350,49 +487,58 @@ class CrawlerEngine:
     
     # ============= DB 저장 =============
     
-    def _save_results(self, results: List[Tuple], marathon):
+    def _save_results(self, results: List[Tuple], marathon, participants: List):
         """
         크롤링 결과를 DB에 배치 저장
         
         배치 업데이트로 성능 최적화
         """
         if not results:
+            print("[dbg] save_results: empty results")
             return
-        
+
+        # print(f"[dbg] save_results: results_count={len(results)} mid={marathon['id']}")
+
+        # ✅ 여기에 추가: sqlite3.Row 안전 추출
+        m_usedata = (marathon["usedata"] or "") if "usedata" in marathon.keys() else ""
+        m_urltpl  = marathon["url_template"] if "url_template" in marathon.keys() else ""
+        # ✅ pid → bib 매핑 생성
+        pid_to_bib = {p["id"]: p["nameorbibno"] for p in participants}
         now_iso = datetime.now().isoformat()
-        
-        # 배치 데이터 준비
-        split_batch = []
-        meta_batch = []
-        asset_batch = []
-        
-        for r in results:
+        split_batch, meta_batch, asset_batch = [], [], []
+        num_assets_enq = 0  # ← 바깥에서 누적
+
+        for idx, r in enumerate(results):
             if not r:
+                print(f"[warn] result[{idx}] is falsy: {r}")
                 continue
-            
-            # 결과 언팩
-            if isinstance(r, tuple):
-                if len(r) == 4:
-                    pid, splits, meta, assets = r
-                elif len(r) == 3:
-                    pid, splits, meta = r
-                    assets = []
-                else:
-                    pid, splits = r
-                    meta, assets = {}, []
+            if not isinstance(r, tuple):
+                print(f"[warn] result[{idx}] not tuple: type={type(r).__name__} repr={repr(r)[:200]}")
+                continue
+
+            pid, splits, meta, assets = None, None, None, None
+            if len(r) == 4:
+                pid, splits, meta, assets = r
+            elif len(r) == 3:
+                pid, splits, meta = r
+                assets = []
             else:
-                continue
-            
-            # 메타 데이터
-            if meta:
+                pid, splits = r[0], r[1] if len(r) > 1 else []
+                meta, assets = {}, []
+
+            # 메타
+            if isinstance(meta, dict) and meta:
                 meta_batch.append((
                     meta.get("race_label"),
                     meta.get("race_total_km"),
                     pid
                 ))
-            
-            # 스플릿 데이터
-            for s in splits or []:
+
+            # 스플릿
+            for s in (splits or []):
+                if not isinstance(s, dict):
+                    print(f"[warn] split item not dict pid={pid} item={repr(s)[:120]}")
+                    continue
                 split_batch.append((
                     pid,
                     s.get("point_label"),
@@ -402,59 +548,82 @@ class CrawlerEngine:
                     s.get("pace"),
                     now_iso
                 ))
-            
-            # 에셋 데이터
-            for a in assets:
-                if a.get("url"):
-                    asset_batch.append((
-                        pid,
-                        a.get("kind") or "certificate",
+
+            # ✅ 에셋 — 반드시 각 r 내부에서 처리!
+            for a in (assets or []):
+                if not isinstance(a, dict):
+                    print(f"[warn] asset item not dict pid={pid} item={repr(a)[:120]}")
+                    continue
+                url = a.get("url")
+                if not url:
+                    continue
+
+                asset_batch.append((
+                    pid,
+                    a.get("kind") or "certificate",
+                    a.get("host"),
+                    url,
+                    None,
+                    now_iso
+                ))
+
+                # 이미지 다운로드 큐
+                bib = pid_to_bib.get(pid)
+                if bib:
+                    referer_url = self._build_url(
+                        m_urltpl,
+                        bib,
+                        m_usedata
+                    )
+                    self.image_queue.put((
                         a.get("host"),
-                        a.get("url"),
-                        None,
-                        now_iso
+                        m_usedata,
+                        bib, url,
+                        referer_url, pid
                     ))
-        
-        # 배치 저장
-        with get_db() as conn:
-            # 메타 데이터 업데이트
-            if meta_batch:
-                conn.executemany(
-                    """UPDATE participants
-                       SET race_label = COALESCE(?, race_label),
-                           race_total_km = COALESCE(?, race_total_km)
-                       WHERE id = ?""",
-                    meta_batch
-                )
-            
-            # 스플릿 데이터 upsert
-            if split_batch:
-                conn.executemany(
-                    """INSERT INTO splits(participant_id, point_label, point_km, 
-                                          net_time, pass_clock, pace, seen_at)
-                       VALUES(?,?,?,?,?,?,?)
-                       ON CONFLICT(participant_id, point_label)
-                       DO UPDATE SET net_time=excluded.net_time,
-                                     pass_clock=excluded.pass_clock,
-                                     pace=excluded.pace,
-                                     seen_at=excluded.seen_at""",
-                    split_batch
-                )
-            
-            # 에셋 데이터 upsert
-            if asset_batch:
-                conn.executemany(
-                    """INSERT INTO assets(participant_id, kind, host, url, 
-                                          local_path, seen_at)
-                       VALUES(?,?,?,?,?,?)
-                       ON CONFLICT(participant_id, kind)
-                       DO UPDATE SET url=excluded.url,
-                                     host=excluded.host,
-                                     seen_at=excluded.seen_at""",
-                    asset_batch
-                )
-            
-            conn.commit()
+                    num_assets_enq += 1
+
+        print(f"[dbg] batches -> splits={len(split_batch)} meta={len(meta_batch)} assets={len(asset_batch)} enqueued={num_assets_enq}")
+
+        try:
+            with get_db() as conn:
+                if meta_batch:
+                    conn.executemany(
+                        """UPDATE participants
+                        SET race_label = COALESCE(?, race_label),
+                            race_total_km = COALESCE(?, race_total_km)
+                        WHERE id = ?""",
+                        meta_batch
+                    )
+
+                if split_batch:
+                    conn.executemany(
+                        """INSERT INTO splits(participant_id, point_label, point_km, 
+                                            net_time, pass_clock, pace, seen_at)
+                        VALUES(?,?,?,?,?,?,?)
+                        ON CONFLICT(participant_id, point_label)
+                        DO UPDATE SET net_time=excluded.net_time,
+                                        pass_clock=excluded.pass_clock,
+                                        pace=excluded.pace,
+                                        seen_at=excluded.seen_at""",
+                        split_batch
+                    )
+
+                if asset_batch:
+                    conn.executemany(
+                        """INSERT INTO assets(participant_id, kind, host, url, 
+                                            local_path, seen_at)
+                        VALUES(?,?,?,?,?,?)
+                        ON CONFLICT(participant_id, kind)
+                        DO UPDATE SET url=excluded.url,
+                                        host=excluded.host,
+                                        seen_at=excluded.seen_at""",
+                        asset_batch
+                    )
+                conn.commit()
+        except Exception as e:
+            traceback.print_exc()
+            print(f"[fatal] DB batch failed mid={marathon['id']}: {e}")
     
     # ============= 이미지 다운로드 워커 =============
     
@@ -473,31 +642,31 @@ class CrawlerEngine:
         """이미지 다운로드 워커 (백그라운드)"""
         while True:
             task = self.image_queue.get()
-            
-            # 종료 신호
             if task is None:
                 break
-            
             try:
-                host, usedata, bib, img_url, referer, pid = task
+                host, usedata, bib, img_url, referer, pid = task # ✅ task unpacking
                 
-                # 이미지 저장
-                saved_path = save_certificate_to_disk(
-                    host, usedata, bib, img_url, referer
-                )
+                # ✅ 디버그 로그 추가
+                # print(f"[img_worker] START pid={pid} host={host} bib={bib}")
+                # print(f"  - url: {img_url}")
+                # print(f"  - referer: {referer}")
+
+                saved_path = save_certificate_to_disk(host, usedata, bib, img_url, referer)
                 
-                # DB 업데이트
                 if saved_path:
+                    print(f"[img_worker] OK pid={pid} path={saved_path}") # ✅ 성공 로그
                     with get_db() as conn:
                         conn.execute(
-                            "UPDATE participants SET finish_image_path=? WHERE id=?",
-                            (saved_path, pid)
+                            "UPDATE participants SET finish_image_url=?, finish_image_path=? WHERE id=?",
+                            (img_url, saved_path, pid)
                         )
                         conn.commit()
-            
+                else:
+                    print(f"[img_worker] FAIL pid={pid} | save_certificate_to_disk returned None") # ✅ 실패 로그
             except Exception as e:
-                print(f"[err] image save: {type(e).__name__}: {e}")
-            
+                traceback.print_exc()
+                print(f"[err] image save: {type(e).__name__}: {e} | pid={pid} url={img_url}")
             finally:
                 self.image_queue.task_done()
 

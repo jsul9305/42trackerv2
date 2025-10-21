@@ -215,6 +215,11 @@ let marathons = [];
 let currentMarathon = null;
 let items = []; // 참가자 목록(선택된 대회)
 
+// ...기존 스크립트 상단 공용 함수들 근처에 추가
+function getPred(last){
+  if(!last) return null;
+  return last.prediction || last.pred || null;
+}
 /* ===== Theme handling ===== */
 const THEME_KEY = 'sc_theme';
 function applyTheme(theme){
@@ -324,10 +329,11 @@ function lastNetSec(last){
    4) lastNetSec 오름차순 (동 km/동시각일 때 더 빠른 넷타임)
    5) 표시명(알리아스) 오름차순
 */
-function compareParticipantFast(a, b){
+function compareParticipantFast(a, b){  
   const la = a._last || {}, lb = b._last || {};
-  const fa = (la.pred && la.pred.finished) ? 1 : 0;
-  const fb = (lb.pred && lb.pred.finished) ? 1 : 0;
+  const pa = getPred(la), pb = getPred(lb);               // ✅ 추가
+  const fa = (pa && pa.finished) ? 1 : 0;                  // ← la.pred → pa
+  const fb = (pb && pb.finished) ? 1 : 0;                  // ← lb.pred → pb
   if (fa !== fb) return fb - fa;
 
   const ka = lastKm(la), kb = lastKm(lb);
@@ -495,41 +501,6 @@ function renderGroups(){
     }
     mobileWrap.appendChild(mlist);
     sec.appendChild(mobileWrap);
-    /* ===== 모바일: 1줄 리스트(이름 · 현재 포인트 · (5초 여유)완주 ETA · 원문 · 삭제) ===== */
-    // const mobileWrap = document.createElement('div');
-    // mobileWrap.className = 'only-mobile compact-scroll';
-    // const mlist = document.createElement('div');
-    // mlist.className = 'mlist';
-
-    // for(const it of sorted){
-    //   const last = it._last || {};
-    //   const pt = lastPointLabel(last) || '-';
-
-    //   // 완주 ETA 표시 규칙:
-    //   // - finished면 "완주"
-    //   // - 아니면 finish_eta(시계시각)이 있으면 +5초 버퍼해서 표시, 없으면 '-'
-    //   let etaTxt = '-';
-    //   if(last?.pred?.finished){
-    //     etaTxt = '완주';
-    //   }else if(last?.pred?.finish_eta){
-    //     etaTxt = addSec(last.pred.finish_eta, 5) || last.pred.finish_eta || '-';
-    //   }
-
-    //   const row = document.createElement('div');
-    //   row.className = 'mrow';
-    //   row.innerHTML = `
-    //     <span class="c name">${it.alias||'-'}</span>
-    //     <span class="c pt">${pt}</span>
-    //     <span class="c eta">${etaTxt}</span>
-    //     <span class="actions">
-    //       ${last.url ? `<a class="btn inline" href="${last.url}" target="_blank">원문</a>` : `<span class="btn inline" style="opacity:.6;pointer-events:none">원문</span>`}
-    //       <button class="btn inline" onclick="delRow(${it.id})">삭제</button>
-    //     </span>
-    //   `;
-    //   mlist.appendChild(row);
-    // }
-    // mobileWrap.appendChild(mlist);
-    // sec.appendChild(mobileWrap);
 
     /* ===== 데스크톱 표(그대로 유지) ===== */
     const tblWrap = document.createElement('div');
@@ -552,7 +523,8 @@ function renderGroups(){
       if(last.splits?.length){
         pts = last.splits.map(s => `${s.point_label||s.point}: ${s.net_time||s.time} (${s.pass_clock}|${s.pace})`).join('\n');
       }else if(last.msg){ pts = last.msg; }
-      const statusTxt = (last.pred && last.pred.finished) ? '완주' : ((last.splits && last.splits.length) ? '주행중' : '-');
+      const pred = getPred(last);                                 // ✅ 추가
+      const statusTxt = (pred && pred.finished) ? '완주' : ((last.splits && last.splits.length) ? '주행중' : '-');
 
       const tr = document.createElement('tr');
       tr.innerHTML = `
@@ -560,9 +532,9 @@ function renderGroups(){
         <td>${it.nameorbibno||it.bib||'-'}</td>
         <td class="mono" style="white-space:pre; text-align:left">${pts}</td>
         <td>${statusTxt}</td>
-        <td>${last.pred?.next_point_km ? (Number(last.pred.next_point_km).toFixed(1)+'km @ '+(last.pred.next_point_eta||'-')) : '-'}</td>
-        <td>${last.pred?.finish_eta||'-'}</td>
-        <td class="mono">${last.pred?.finish_net_pred||'-'}</td>
+        <td>${pred?.next_point_km ? (Number(pred.next_point_km).toFixed(1)+'km @ '+(pred.next_point_eta||'-')) : '-'}</td>
+        <td>${pred?.finish_eta||'-'}</td>
+        <td class="mono">${pred?.finish_net_pred||'-'}</td>
         <td>${last.url ? `<a href="${last.url}" target="_blank">원문</a>` : '-'}</td>
         <td><button class="btn inline" onclick="delRow(${it.id})">삭제</button></td>
       `;

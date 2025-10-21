@@ -7,7 +7,7 @@ STANDARD_DISTANCES = [5.0, 10.0, 21.1, 42.2, 50.0, 100.0, 109.0]
 
 # 거리별 허용 오차 (km)
 DISTANCE_TOLERANCE = {
-    (40, float('inf')): 1.0,  # Full
+    (40, float('inf')): 3,  # Full
     (20, 40): 0.8,            # Half
     (15, 20): 0.8,
     (10, 15): 1.0,            # 10-15km

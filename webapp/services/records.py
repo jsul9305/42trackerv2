@@ -8,7 +8,7 @@ from core.database import get_db
 from utils.distance_utils import label_for_distance
 from utils.file_utils import to_web_static_url
 from utils.time_utils import looks_time
-from config.constants import FINISH_KEYWORDS_KO, FINISH_KEYWORDS_EN
+from webapp.services.prediction import PredictionService
 
 
 class RecordsService:
@@ -87,15 +87,9 @@ class RecordsService:
 
         if not splits:
             return None
+        splits = [dict(row) for row in splits]
 
-        def _is_finish(label: Optional[str]) -> bool:
-            if not label:
-                return False
-            raw = label.strip()
-            low = raw.lower()
-            return any(k in raw for k in FINISH_KEYWORDS_KO) or any(k in low for k in FINISH_KEYWORDS_EN)
-
-        finish_splits = [s for s in splits if _is_finish(s["point_label"])]
+        finish_splits = [s for s in splits if PredictionService.is_finish_label(s.get("point_label"))]
         best_split = finish_splits[-1] if finish_splits else splits[-1]
 
         record = (best_split["net_time"] or "").strip()

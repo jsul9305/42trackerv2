@@ -5,6 +5,7 @@ from typing import Dict, List, Optional, Any
 from urllib.parse import urlsplit
 
 from core.database import get_db
+from webapp.services.prediction import PredictionService
 
 
 class ParticipantService:
@@ -31,25 +32,67 @@ class ParticipantService:
         
         Returns:
             참가자 목록
+    참가자 목록 + 예측 요약(prediction, status_text, finished) 포함
+    - marathon_id가 없어도 마라톤 총거리를 JOIN해서 예측 가능하게 함
+    - 스플릿은 한 번에 가져와 pid별로 그룹화
         """
+        from core.database import get_db
+        from webapp.services.prediction import PredictionService
+
         with get_db() as conn:
-            if marathon_id:
-                if active_only:
-                    query = "SELECT * FROM participants WHERE marathon_id=? AND active=1 ORDER BY id DESC"
-                    params = (marathon_id,)
-                else:
-                    query = "SELECT * FROM participants WHERE marathon_id=? ORDER BY id DESC"
-                    params = (marathon_id,)
-            else:
-                if active_only:
-                    query = "SELECT * FROM participants WHERE active=1 ORDER BY id DESC"
-                    params = ()
-                else:
-                    query = "SELECT * FROM participants ORDER BY id DESC"
-                    params = ()
-            
-            rows = conn.execute(query, params).fetchall()
-            return [dict(row) for row in rows]
+            # 1) 참가자 + 마라톤 JOIN (항상)
+            base_sql = (
+                "SELECT p.*, m.total_distance_km "
+                "FROM participants p "
+                "JOIN marathons m ON p.marathon_id = m.id "
+            )
+            conds, params = [], []
+            if marathon_id is not None:
+                conds.append("p.marathon_id=?")
+                params.append(marathon_id)
+            if active_only:
+                conds.append("p.active=1")
+            where = (" WHERE " + " AND ".join(conds)) if conds else ""
+            order = " ORDER BY p.id DESC"
+
+            rows = conn.execute(base_sql + where + order, params).fetchall()
+            participants = [dict(r) for r in rows]
+            if not participants:
+                return []
+
+            # 2) 모든 참가자 스플릿을 한 번에 조회
+            pids = [p["id"] for p in participants]
+            splits_by_pid = {pid: [] for pid in pids}
+            placeholders = ",".join("?" for _ in pids)
+            split_rows = conn.execute(
+                f"""SELECT participant_id, point_label, point_km, net_time, pass_clock, pace
+                    FROM splits
+                    WHERE participant_id IN ({placeholders})
+                    ORDER BY id ASC""",
+                pids
+            ).fetchall()
+            for s in split_rows:
+                splits_by_pid[s["participant_id"]].append(dict(s))
+
+            # 3) 예측 계산 + 호환 필드 주입
+            for p in participants:
+                pid = p["id"]
+                splits = splits_by_pid.get(pid, [])
+                total_km = p.get("race_total_km") or p.get("total_distance_km") or 42.195
+
+                pred = PredictionService.calculate_prediction(splits, total_km)
+
+                # 기본 예측 필드
+                p["prediction"]   = pred
+                p["status_text"]  = pred.get("status_text", "주행중")
+                p["finished"]     = bool(pred.get("finished"))
+                # 구(舊) 프런트 호환용
+                p["status"]       = p["status_text"]
+                # (선택) 화면에서 쓰기 좋게 완주 시간/도착시각도 평탄화
+                p["finish_net"]   = pred.get("finish_net_pred")
+                p["finish_clock"] = pred.get("finish_eta")
+
+            return participants
     
     @staticmethod
     def get_participant(participant_id: int) -> Optional[Dict]:

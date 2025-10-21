@@ -6,7 +6,6 @@ from typing import Optional, List, Tuple
 from bs4 import BeautifulSoup
 
 from utils.network_utils import get_session, abs_url
-from config.settings import VERIFY_YN
 from config.constants import DEFAULT_HEADERS
 
 
