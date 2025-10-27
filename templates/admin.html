@@ -214,6 +214,18 @@ async function createMarathon(){
 /* 2) 대회 리스트 로드 & 렌더 */
 async function loadAll(){
   const r = await fetch('/api/marathons'); marathons = await r.json();
+  
+  // ✅ 엑셀 업로드용 마라톤 선택 목록 채우기
+  const select = $('marathon-select');
+  select.innerHTML = '';
+  if(!marathons.length){
+    select.innerHTML = '<option value="">등록된 대회가 없습니다</option>';
+  } else {
+    for(const m of marathons){
+      select.innerHTML += `<option value="${m.id}">${escapeHtml(m.name)} (ID: ${m.id})</option>`;
+    }
+  }
+
   renderList();
   // 쿼리로 특정 대회 펼치기: /admin?marathon_id=1
   const mid = new URLSearchParams(location.search).get('marathon_id');
@@ -404,6 +416,29 @@ async function delParticipant(pid, mid){
 
 /* 초기 진입: ?marathon_id= 로 특정 카드 펼치기 지원 */
 loadAll();
+
+// ✅ 엑셀 업로드 폼 제출 핸들러
+$('upload-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const formData = new FormData(form);
+  const marathonId = formData.get('marathon_id');
+  const file = formData.get('file');
+
+  if (!marathonId) {
+    toast('업로드할 마라톤을 선택해주세요.');
+    return;
+  }
+  if (!file || file.size === 0) {
+    toast('업로드할 엑셀 파일을 선택해주세요.');
+    return;
+  }
+
+  const r = await fetch('/api/participants/upload_excel', { method: 'POST', body: formData });
+  const result = await r.json();
+  toast(result.message || (result.error ? `오류: ${result.error}`: '알 수 없는 응답'));
+  if(r.ok) await reloadParticipants(marathonId);
+});
 </script>
 </body>
 </html>
