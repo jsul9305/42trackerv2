@@ -31,8 +31,8 @@ def fetch(url: str, timeout: int = 10, verify: Optional[bool] = None) -> str:
         if verify is None:
             verify = verify_for_host(host)
 
-        # 1) myresult/spct는 워커 우선
-        if any(h in host for h in ["myresult.co.kr", "spct.co.kr"]):
+        # 1) myresult/spct/smartchip은 워커 우선
+        if any(h in host for h in ["myresult.co.kr", "spct.co.kr", "smartchip.co.kr"]):
             try:
                 html = get_mr_worker().fetch(url2, timeout=timeout)
                 if html:
@@ -49,7 +49,7 @@ def fetch(url: str, timeout: int = 10, verify: Optional[bool] = None) -> str:
         r.raise_for_status()
         # 인코딩 추정 (EUC-KR 등)
         r.encoding = r.apparent_encoding or r.encoding
-        _dbg(f"requests_get success host={host} status={r.status_code} enc={r.encoding}")
+        # _dbg(f"requests_get success host={host} status={r.status_code} enc={r.encoding}")
         return r.text
 
     except Exception as e:
