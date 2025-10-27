@@ -279,7 +279,7 @@ class CrawlerEngine:
         Returns:
             (participant_id, splits, meta, assets)
         """
-        # print(f"[dbg] crawl_one start pid={pid} bib={bib} url={url}")
+        print(f"[crawl_one] pid={pid} bib={bib}")
         # HTML 페칭 (캐시 사용)
         html = None
         try:
@@ -525,6 +525,15 @@ class CrawlerEngine:
                 meta, assets = {}, []
 
             # 메타
+            # ✅ 완주 여부 확인
+            is_finished = False
+            if splits:
+                for s in splits:
+                    if isinstance(s, dict):
+                        point_label = (s.get("point_label") or "").lower()
+                        if "finish" in point_label or "도착" in point_label:
+                            is_finished = True
+                            break
             if isinstance(meta, dict) and meta:
                 meta_batch.append((
                     meta.get("race_label"),
@@ -567,7 +576,7 @@ class CrawlerEngine:
 
                 # 이미지 다운로드 큐
                 bib = pid_to_bib.get(pid)
-                if bib:
+                if bib and is_finished: # ✅ 완주한 경우에만 이미지 다운로드 큐에 추가
                     referer_url = self._build_url(
                         m_urltpl,
                         bib,
@@ -664,18 +673,30 @@ class CrawlerEngine:
             task = self.image_queue.get()
             if task is None:
                 break
+            
+            # task unpacking 실패 시 로깅을 위해 변수 초기화
+            pid, img_url = None, None
             try:
                 host, usedata, bib, img_url, referer, pid = task # ✅ task unpacking
                 
-                # ✅ 디버그 로그 추가
-                # print(f"[img_worker] START pid={pid} host={host} bib={bib}")
-                # print(f"  - url: {img_url}")
-                # print(f"  - referer: {referer}")
-
+                # 1. DB에서 기존 이미지 경로 확인
+                with get_db() as conn:
+                    p_row = conn.execute(
+                        "SELECT finish_image_path FROM participants WHERE id=?",
+                        (pid,)
+                    ).fetchone()
+                
+                # 2. DB에 경로가 있고, 실제 파일도 존재하면 건너뛰기
+                if p_row and p_row['finish_image_path'] and os.path.exists(p_row['finish_image_path']):
+                    # print(f"[img_worker] SKIP pid={pid} | already exists: {p_row['finish_image_path']}")
+                    continue
+                
+                # 3. 이미지 다운로드 시도
                 saved_path = save_certificate_to_disk(host, usedata, bib, img_url, referer)
                 
                 if saved_path:
-                    print(f"[img_worker] OK pid={pid} path={saved_path}") # ✅ 성공 로그
+                    # 4. 성공 시 DB에 경로 업데이트
+                    print(f"[img_worker] OK pid={pid} path={saved_path}")
                     with get_db() as conn:
                         conn.execute(
                             "UPDATE participants SET finish_image_url=?, finish_image_path=? WHERE id=?",
@@ -683,7 +704,7 @@ class CrawlerEngine:
                         )
                         conn.commit()
                 else:
-                    print(f"[img_worker] FAIL pid={pid} | save_certificate_to_disk returned None") # ✅ 실패 로그
+                    print(f"[img_worker] FAIL pid={pid} | save_certificate_to_disk returned None")
             except Exception as e:
                 traceback.print_exc()
                 print(f"[err] image save: {type(e).__name__}: {e} | pid={pid} url={img_url}")
