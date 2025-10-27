@@ -10,6 +10,52 @@ from utils.file_utils import to_web_static_url
 from utils.time_utils import looks_time
 from webapp.services.prediction import PredictionService
 
+CALC_NET_TIME_SQL = """
+WITH base AS (
+  SELECT
+    point_km,
+    pass_clock,
+    seen_at
+  FROM splits
+  WHERE participant_id = ?
+    AND pass_clock IS NOT NULL
+    AND LENGTH(pass_clock) >= 8
+),
+dedup AS (
+  SELECT
+    point_km,
+    pass_clock,
+    ROW_NUMBER() OVER (
+      PARTITION BY point_km
+      ORDER BY datetime(seen_at) DESC
+    ) AS rn
+  FROM base
+),
+ordered AS (
+  SELECT point_km, pass_clock
+  FROM dedup
+  WHERE rn = 1
+  ORDER BY point_km
+),
+parsed AS (
+  SELECT point_km,
+         (substr(pass_clock,1,2)*3600 + substr(pass_clock,4,2)*60 + substr(pass_clock,7,2)) AS sec
+  FROM ordered
+),
+gaps AS (
+  SELECT
+         LAG(sec) OVER (ORDER BY point_km) AS prev_sec,
+         CASE
+           WHEN sec < LAG(sec) OVER (ORDER BY point_km) THEN (sec + 86400) - LAG(sec) OVER (ORDER BY point_km)
+           ELSE sec - LAG(sec) OVER (ORDER BY point_km)
+         END AS gap_sec,
+         sec
+  FROM parsed
+)
+SELECT SUM(gap_sec) AS total_seconds
+FROM gaps
+WHERE prev_sec IS NOT NULL;
+"""
 
 class RecordsService:
     """
@@ -30,7 +76,7 @@ class RecordsService:
         """
         with get_db() as conn:
             participants = conn.execute("""
-                SELECT p.*, m.name AS marathon_name, m.total_distance_km AS default_km
+                SELECT p.*, m.name AS marathon_name, m.total_distance_km AS default_km, m.url_template
                 FROM participants p
                 JOIN marathons m ON m.id = p.marathon_id
                 WHERE p.active = 1
@@ -38,7 +84,7 @@ class RecordsService:
 
             items = []
             for p in participants:
-                best = RecordsService._pick_best_record(conn, p["id"])
+                best = RecordsService._pick_best_record(conn, p)
 
                 name = (p["alias"] or "").strip() or (p["nameorbibno"] or "").strip()
                 dist = p["race_total_km"] if p["race_total_km"] is not None else p["default_km"]
@@ -78,8 +124,9 @@ class RecordsService:
         return items
 
     @staticmethod
-    def _pick_best_record(conn, participant_id: int) -> Optional[Dict]:
+    def _pick_best_record(conn, participant: Dict) -> Optional[Dict]:
         """참가자의 최종 기록(net, clock) 선택"""
+        participant_id = participant["id"]
         splits = conn.execute(
             "SELECT * FROM splits WHERE participant_id=? ORDER BY id ASC",
             (participant_id,)
@@ -89,12 +136,14 @@ class RecordsService:
             return None
         splits = [dict(row) for row in splits]
 
+        # 완주 기록 선택
         finish_splits = [s for s in splits if PredictionService.is_finish_label(s.get("point_label"))]
         best_split = finish_splits[-1] if finish_splits else splits[-1]
 
         record = (best_split["net_time"] or "").strip()
+
+        # 그래도 net_time이 없으면 마지막 스플릿의 net_time을 다시 시도
         if not looks_time(record):
-            # 유효한 net_time이 아니면 마지막 split의 net_time을 다시 시도
             record = (splits[-1]["net_time"] or "").strip()
 
         clock = (best_split["pass_clock"] or "").strip()
@@ -104,6 +153,24 @@ class RecordsService:
             "record": record if looks_time(record) else "",
             "clock": clock if looks_time(clock) else "",
         }
+
+    @staticmethod
+    def _calculate_net_time_from_clocks(conn, participant_id: int) -> Optional[str]:
+        """pass_clock 기록들로부터 SQL을 이용해 총 경과 시간을 계산"""
+        try:
+            row = conn.execute(CALC_NET_TIME_SQL, (participant_id,)).fetchone()
+            # print(f"[dbg] CALC_NET_TIME_SQL for pid={participant_id} -> row: {dict(row) if row else None}")
+
+            if row and row["total_seconds"] is not None:
+                total_seconds = int(row["total_seconds"])
+                h, rem = divmod(total_seconds, 3600)
+                m, s = divmod(rem, 60)
+                return f"{h:02d}:{m:02d}:{s:02d}"
+            return None
+
+        except Exception as e:
+            print(f"[warn] Failed to calculate net_time for pid={participant_id}: {e}")
+            return None
 
     @staticmethod
     def _sort_key(item: Dict) -> tuple:

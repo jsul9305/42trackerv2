@@ -4,6 +4,7 @@
 from typing import Dict, List, Optional, Any
 from urllib.parse import urlsplit
 
+from utils.time_utils import looks_time
 from core.database import get_db
 from webapp.services.prediction import PredictionService
 
@@ -262,6 +263,9 @@ class ParticipantService:
             }
         """
         with get_db() as conn:
+            # 예측 및 기록 계산에 필요한 서비스들을 먼저 import 합니다.
+            from webapp.services.prediction import PredictionService
+
             # 참가자 + 마라톤 정보
             p = conn.execute(
                 """SELECT p.*, m.total_distance_km, m.url_template, m.usedata
@@ -280,6 +284,15 @@ class ParticipantService:
                 (participant_id,)
             ).fetchall()
             
+            splits = [dict(s) for s in splits]
+
+            # 완주 기록 보정 (pass_clock -> net_time)
+            finish_split = next((s for s in reversed(splits) if PredictionService.is_finish_label(s.get("point_label"))), None)
+            
+            if finish_split:
+                pass # 현재는 별도 처리 없음. DB 값을 그대로 사용.
+
+
             # URL 생성
             url = (p['url_template'] or '').replace(
                 '{nameorbibno}', p['nameorbibno']
@@ -288,15 +301,14 @@ class ParticipantService:
             )
             
             # 예측 계산 (간단 버전)
-            from webapp.services.prediction import PredictionService
             prediction = PredictionService.calculate_prediction(
-                [dict(s) for s in splits],
+                splits,
                 p['race_total_km'] or p['total_distance_km']
             )
             
             return {
                 'participant': dict(p),
-                'splits': [dict(s) for s in splits],
+                'splits': splits,
                 'prediction': prediction,
                 'url': url
             }

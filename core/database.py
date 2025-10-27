@@ -76,16 +76,16 @@ def init_database():
 def migrate_database():
     """스키마 마이그레이션"""
     migrations = [
-        "ALTER TABLE participants ADD COLUMN race_label TEXT",
-        "ALTER TABLE participants ADD COLUMN race_total_km REAL",
-            # ▼ 추가: 스마트칩 Bally_no 같은 별도 키 저장용
-            "ALTER TABLE participants ADD COLUMN cert_key TEXT",
-            # ▼ 추가: 완주증 최종 이미지 URL 저장
-            "ALTER TABLE participants ADD COLUMN finish_image_url TEXT",
-            # ▼ 로컬 파일 경로 저장
-            "ALTER TABLE participants ADD COLUMN finish_image_path TEXT",
-            # ▼ 추가: 대회별 완주증 URL 템플릿(있으면 사용)
-            "ALTER TABLE marathons ADD COLUMN cert_url_template TEXT"
+        "ALTER TABLE participants ADD COLUMN race_label TEXT;",
+        "ALTER TABLE participants ADD COLUMN race_total_km REAL;",
+        # ▼ 추가: 스마트칩 Bally_no 같은 별도 키 저장용
+        "ALTER TABLE participants ADD COLUMN cert_key TEXT;",
+        # ▼ 추가: 완주증 최종 이미지 URL 저장
+        "ALTER TABLE participants ADD COLUMN finish_image_url TEXT;",
+        # ▼ 로컬 파일 경로 저장
+        "ALTER TABLE participants ADD COLUMN finish_image_path TEXT;",
+        # ▼ 추가: 대회별 완주증 URL 템플릿(있으면 사용)
+        "ALTER TABLE marathons ADD COLUMN cert_url_template TEXT;"
     ]
     
     with get_db() as conn:

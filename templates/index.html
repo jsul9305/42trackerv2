@@ -323,27 +323,30 @@ function lastNetSec(last){
   return (t!=null ? t : Number.POSITIVE_INFINITY);
 }
 /* 정렬 기준: 
-   1) pred.finished = true 먼저
-   2) lastKm 내림차순 (더 멀리)
-   3) lastClockSec 오름차순 (더 먼저 통과)
-   4) lastNetSec 오름차순 (동 km/동시각일 때 더 빠른 넷타임)
-   5) 표시명(알리아스) 오름차순
+   1. 완주 여부 (완주자 우선)
+   2. 이동 거리 (내림차순)
+   3. 완주 기록 (오름차순, 완주자에게만 유효)
+   4. 마지막 통과 시각 (오름차순)
+   5. 이름 (오름차순)
 */
 function compareParticipantFast(a, b){  
   const la = a._last || {}, lb = b._last || {};
   const pa = getPred(la), pb = getPred(lb);               // ✅ 추가
   const fa = (pa && pa.finished) ? 1 : 0;                  // ← la.pred → pa
   const fb = (pb && pb.finished) ? 1 : 0;                  // ← lb.pred → pb
-  if (fa !== fb) return fb - fa;
+  if (fa !== fb) return fb - fa; // 1. 완주자 우선
 
   const ka = lastKm(la), kb = lastKm(lb);
-  if (ka !== kb) return kb - ka;
+  if (ka !== kb) return kb - ka; // 2. 더 멀리 간 순서
+
+  // 완주한 경우, net_time (완주 기록)으로 우선 정렬
+  if (fa && fb) {
+    const na = lastNetSec(la), nb = lastNetSec(lb);
+    if (na !== nb) return na - nb; // 3. 완주 기록 빠른 순
+  }
 
   const ca = lastClockSec(la), cb = lastClockSec(lb);
-  if (ca !== cb) return ca - cb;
-
-  const na = lastNetSec(la), nb = lastNetSec(lb);
-  if (na !== nb) return na - nb;
+  if (ca !== cb) return ca - cb; // 4. 통과 시각 빠른 순
 
   return (a.alias||'').localeCompare(b.alias||'');
 }
@@ -413,8 +416,22 @@ async function fetchAll(){
 }
 
 function groupOrder(name){
-  const order = { "Full": 1, "32K": 2, "Half": 3, "10K": 4, "5K": 5, "3K": 6 }; // ✨ 수정
-  return order[name] || 10;
+  // 1. 명시적 순서 정의 (Full, Half 등)
+  const order = { 
+    "Full": 1, "32K": 2, "Half": 3, 
+    "10K": 4, "10km": 4, 
+    "5K": 5, "5km": 5, 
+    "3K": 6, "3km": 6,
+    "미분류": 99
+  };
+  if (name in order) return order[name];
+
+  // 2. 숫자 기반 종목명 처리 (e.g., "25km")
+  const m = name.match(/^(\d+(?:\.\d+)?)/);
+  if (m) return 10 - parseFloat(m[1]); // 숫자가 클수록 앞 순서 (10 - 25 = -15)
+
+  // 3. 그 외
+  return 90;
 }
 
 function lastSplitsText(last){
@@ -451,8 +468,12 @@ function renderGroups(){
 
   // 종목 그룹핑
   const buckets = {};
-  for(const it of items){
-    const g = (it._last && it._last.group) ? it._last.group : '미분류';
+  for (const it of items) {
+    // 그룹명 결정: 1) 실시간 데이터의 race_label -> 2) 참가자 정보의 race_label -> 3) '미분류'
+    const g = (it._last && it._last.race_label)
+      ? it._last.race_label
+      : (it.race_label || '미분류');
+
     (buckets[g] ||= []).push(it);
   }
   const names = Object.keys(buckets).sort((a,b)=> groupOrder(a)-groupOrder(b) || a.localeCompare(b));

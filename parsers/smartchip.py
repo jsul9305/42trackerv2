@@ -11,7 +11,7 @@ from bs4 import BeautifulSoup
 from parsers.base import BaseParser
 from config.constants import FULL_KM, HALF_KM
 from utils.network_utils import get_session, normalize_url
-from utils.distance_utils import extract_distance_from_text, snap_distance, km_from_label
+from utils.distance_utils import extract_distance_from_text, snap_distance, km_from_label, category_from_km
 from utils.time_utils import first_time
 
 
@@ -74,6 +74,7 @@ class SmartchipParser(BaseParser):
         parsed['race_label'] = race_label
         parsed['race_total_km'] = race_total_km
         parsed['state'] = state
+        parsed['host'] = host # ✅ 호스트 정보 추가
         
         return parsed
     
@@ -287,19 +288,10 @@ class SmartchipParser(BaseParser):
         if race_total_km is not None and race_total_km < 1.0:
             return None, None
         
-        # 거리 스냅 (Half=21.0, Full=42.1)
+        # 거리 스냅 및 종목명 결정
         if race_total_km is not None:
-            snapped = snap_distance(race_total_km)
-            if snapped != race_total_km:
-                race_total_km = snapped
-                if snapped == HALF_KM:
-                    race_label = "Half"
-                elif snapped == FULL_KM:
-                    race_label = "Full"
-                else:
-                    race_label = race_label or f"{snapped:g}K"
-            else:
-                race_label = race_label or f"{race_total_km:g}K"
+            race_total_km = snap_distance(race_total_km) or race_total_km
+            race_label = category_from_km(race_total_km)
         
         return race_label, race_total_km
     

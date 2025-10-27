@@ -12,6 +12,7 @@ from config.constants import FULL_KM, HALF_KM
 from utils.time_utils import first_time
 from utils.distance_utils import (
     km_from_label,
+    category_from_km,
     extract_distance_from_text,
     snap_distance
 )
@@ -292,22 +293,10 @@ class MyResultParser(BaseParser):
         full_text = soup.get_text(" ", strip=True)
         race_label, race_total_km = extract_distance_from_text(full_text)
         
-        # 거리 스냅 (Half=21.0, Full=42.1)
+        # 거리 스냅 및 종목명 결정
         if race_total_km is not None:
-            snapped = snap_distance(race_total_km)
-            
-            if snapped != race_total_km:
-                race_total_km = snapped
-                
-                # 라벨 업데이트
-                if snapped == HALF_KM:
-                    race_label = "Half"
-                elif snapped == FULL_KM:
-                    race_label = "Full"
-                else:
-                    race_label = race_label or f"{snapped:g}K"
-            else:
-                race_label = race_label or f"{race_total_km:g}K"
+            race_total_km = snap_distance(race_total_km) or race_total_km
+            race_label = category_from_km(race_total_km)
         
         return race_label, race_total_km
 

@@ -1,10 +1,9 @@
 # crawler/engine.py
 """크롤링 엔진 - 메인 루프 및 작업 조정"""
 
-import time, os
+import time, os, traceback, json, threading
 import random
 import urllib.parse
-import threading
 from queue import Queue
 from datetime import datetime
 from contextlib import closing
@@ -18,15 +17,13 @@ from config.settings import BASE_DIR, CERT_DIR
 from crawler.fetcher import fetch_cached
 from crawler.worker import get_mr_worker
 from parsers.utils import parse
-from parsers.myresult import MyResultParser, extract_total_net_time
+from parsers.myresult import MyResultParser, extract_total_net_time # noqa
 from utils.time_utils import first_time, looks_time
 from utils.file_utils import save_certificate_to_disk
 from utils.network_utils import get_session
 from utils.distance_utils import ensure_finish_label
 from config.settings import CRAWLER_MAX_WORKERS
-
-import traceback
-import json
+from webapp.services.records import RecordsService # ✅ 완주 시간 계산기 import
 
 
 class CrawlerEngine:
@@ -340,7 +337,8 @@ class CrawlerEngine:
 
         meta = {
             "race_label": data.get("race_label"),
-            "race_total_km": data.get("race_total_km")
+            "race_total_km": data.get("race_total_km"),
+            "group": data.get("race_label") # 호환성을 위해 group도 추가
         }
         # ✅ 여기서 Finish 라벨 보강
         splits = ensure_finish_label(splits, meta.get("race_total_km"))
@@ -583,6 +581,14 @@ class CrawlerEngine:
                     ))
                     num_assets_enq += 1
 
+        # ✅ 완주 시간 재계산 및 split_batch에 반영
+        # pass_clock 기반 계산이 필요한 참가자 ID 목록 생성
+        pids_to_recalc = {
+            s[0] for s in split_batch 
+            if "finish" in (s[1] or "").lower() and (s[4] or "").strip() and not looks_time(s[3])
+        }
+
+
         print(f"[dbg] batches -> splits={len(split_batch)} meta={len(meta_batch)} assets={len(asset_batch)} enqueued={num_assets_enq}")
 
         try:
@@ -595,6 +601,20 @@ class CrawlerEngine:
                         WHERE id = ?""",
                         meta_batch
                     )
+                
+                # ✅ 완주 시간 계산 및 업데이트 준비
+                if pids_to_recalc:
+                    for pid in pids_to_recalc:
+                        calculated_net = RecordsService._calculate_net_time_from_clocks(conn, pid)
+                        if calculated_net:
+                            # split_batch에서 해당 참가자의 Finish 기록을 찾아 net_time 업데이트
+                            for i, s in enumerate(split_batch):
+                                if s[0] == pid and "finish" in (s[1] or "").lower():
+                                    # 튜플은 수정 불가하므로 리스트로 변환 후 수정, 다시 튜플로
+                                    s_list = list(s)
+                                    s_list[3] = calculated_net # net_time 필드
+                                    split_batch[i] = tuple(s_list)
+                                    print(f"[dbg] Recalculated net_time for pid={pid}: {calculated_net}")
 
                 if split_batch:
                     conn.executemany(
