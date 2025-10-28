@@ -85,10 +85,31 @@ def api_upload_participants_excel():
                 return jsonify({"error": "추가할 참가자 데이터가 없습니다."}), 400
 
             result = ParticipantService.bulk_create_participants(marathon_id, participants_to_add)
-            return jsonify(result)
+
+            payload = {
+                "ok": bool(result.get("success")),
+                "success": bool(result.get("success")),
+                "created": result.get("created", 0),
+                "skipped": result.get("skipped", 0),
+                "errors": result.get("errors", []),
+                "message": result.get("error") if not result.get("success") else "등록 완료"
+            }
+            status = 200 if payload["ok"] else 400
 
         except Exception as e:
-            return jsonify({"error": f"파일 처리 중 오류 발생: {e}"}), 500
+            payload = {
+                "ok": False,
+                "success": False,
+                "created": 0,
+                "skipped": 0,
+                "errors": [f"{type(e).__name__}: {e}"],
+                "message": "서버 처리 중 오류"
+            }
+            status = 500
+
+        resp = jsonify(payload)
+        resp.headers["Content-Type"] = "application/json; charset=utf-8"
+        return resp, status
     return jsonify({"error": "지원하지 않는 파일 형식입니다."}), 400
 
 @api_bp.route("/participants/<int:pid>", methods=["DELETE"])
