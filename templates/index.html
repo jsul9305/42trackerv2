@@ -134,25 +134,22 @@
     .compact-item .actions{display:flex; gap:6px; margin-left:auto;}
     .compact-item .btn.inline{padding:6px 10px; font-size:12px; border-radius:10px;}
     .compact-scroll{overflow-x:auto; -webkit-overflow-scrolling:touch;}
-    .mlist{min-width:640px; display:flex; flex-direction:column; gap:6px; padding-bottom:4px;}
+    .mlist{min-width:auto; display:flex; flex-direction:column; gap:6px; padding-bottom:4px;}
     .mrow{
       display:flex; align-items:center; gap:10px;
       padding:10px 12px; border:1px solid var(--border); border-radius:12px;
       background:var(--card);
     }
     .mrow .c{min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
-    .mrow .c.name{flex:0 0 160px; font-weight:700;}
-    .mrow .c.pt{flex:0 0 120px;}
-    .mrow .c.eta{flex:0 0 150px; font-variant-numeric: tabular-nums; color:var(--muted);}
-    .mrow .c.clock{flex:0 0 150px; font-variant-numeric: tabular-nums; color:var(--muted);}
+    .mrow .c.name{flex:0 0 60px; font-weight:700;}
+    .mrow .c.pt{flex:0 0 70px;}
+    .mrow .c.net{flex:0 0 70px;}
+    .mrow .c.eta{flex:0 0 70px; font-variant-numeric: tabular-nums; color:var(--muted);}
+    .mrow .c.clock{flex:0 0 70px; font-variant-numeric: tabular-nums; color:var(--muted);}
     .mrow .actions{margin-left:auto; display:flex; gap:6px;}
     .mrow .btn.inline{padding:6px 10px; font-size:12px; border-radius:10px;}
     /* 숫자 정렬용 공통 */
     .num{ font-variant-numeric: tabular-nums; color: var(--muted); }
-
-    /* 기존 .clock 유지 + net 칸 추가 */
-    .mrow .c.clock{ flex:0 0 140px; }
-    .mrow .c.net{   flex:0 0 120px; }
 
   </style>
 </head>
