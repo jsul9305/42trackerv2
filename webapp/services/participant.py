@@ -20,6 +20,95 @@ class ParticipantService:
     """
     
     @staticmethod
+    def bulk_create_participants(marathon_id: int, items: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        엑셀 업로드용 일괄 등록
+        items: [{ "alias": str|None, "nameorbibno": str }, ...]
+        결과: {"success": True, "created": n, "skipped": k, "errors": [...], "normalized": [...]}
+        """
+        if not marathon_id:
+            return {"success": False, "error": "marathon_id required"}
+
+        if not items:
+            return {"success": False, "error": "no items"}
+
+        created = 0
+        skipped = 0
+        errors: List[str] = []
+        normalized: List[Dict[str, Any]] = []
+
+        # 사전 정규화
+        clean_rows = []
+        for idx, it in enumerate(items, start=1):
+            bib = (it.get("nameorbibno") or "").strip()
+            alias = (it.get("alias") or None)
+            if not bib:
+                errors.append(f"row {idx}: empty nameorbibno")
+                skipped += 1
+                continue
+            # SPCT 등 6자리 보정 규칙 재사용
+            try:
+                bib_norm = ParticipantService._normalize_bib_for_spct(marathon_id, bib)
+            except Exception as e:
+                errors.append(f"row {idx}: normalize fail ({e})")
+                skipped += 1
+                continue
+            clean_rows.append((idx, alias, bib_norm))
+
+        if not clean_rows:
+            return {"success": False, "error": "no valid rows", "created": 0, "skipped": skipped, "errors": errors}
+
+        # 중복 방지: 같은 마라톤 내 동일 nameorbibno는 스킵
+        try:
+            with get_db() as conn:
+                # 이미 존재하는 bib 목록 미리 조회
+                bib_list = [b for _, _, b in clean_rows]
+                placeholders = ",".join(["?"] * len(bib_list))
+                existing = set()
+                if bib_list:
+                    rows = conn.execute(
+                        f"SELECT nameorbibno FROM participants WHERE marathon_id=? AND nameorbibno IN ({placeholders})",
+                        (marathon_id, *bib_list)
+                    ).fetchall()
+                    existing = {r["nameorbibno"] for r in rows}
+
+                # 트랜잭션 일괄 삽입
+                for idx, alias, bib_norm in clean_rows:
+                    if bib_norm in existing:
+                        skipped += 1
+                        continue
+                    try:
+                        conn.execute(
+                            """INSERT INTO participants (marathon_id, alias, nameorbibno, active)
+                               VALUES (?, ?, ?, 1)""",
+                            (marathon_id, (alias.strip() if alias else None), bib_norm)
+                        )
+                        created += 1
+                        normalized.append({"row": idx, "nameorbibno": bib_norm, "alias": alias})
+                    except Exception as e:
+                        errors.append(f"row {idx}: insert fail ({type(e).__name__}: {e})")
+                        skipped += 1
+
+                conn.commit()
+
+            return {
+                "success": True,
+                "created": created,
+                "skipped": skipped,
+                "errors": errors,
+                "normalized": normalized
+            }
+
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"{type(e).__name__}: {e}",
+                "created": created,
+                "skipped": skipped,
+                "errors": errors
+            }
+    
+    @staticmethod
     def list_participants(
         marathon_id: Optional[int] = None,
         active_only: bool = False
@@ -94,7 +183,7 @@ class ParticipantService:
                 p["finish_clock"] = pred.get("finish_eta")
 
             return participants
-    
+        
     @staticmethod
     def get_participant(participant_id: int) -> Optional[Dict]:
         """
