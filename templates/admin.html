@@ -129,6 +129,10 @@
           <label>usedata (대회 ID) — 예: 202550000158</label>
           <input class="input mono" id="new_usedata" placeholder="스마트칩 usedata, 없으면 비워둠" />
         </div>
+        <div class="field">
+          <label>대회 날짜 (선택)</label>
+          <input class="input" id="new_event_date" type="date" />
+        </div>
       </div>
       <div class="field" style="margin-top:8px;">
         <label>URL 템플릿</label>
@@ -191,6 +195,7 @@ async function createMarathon(){
   const refresh = Math.max(5, num(val('new_refresh'), 60));
   const usedata = val('new_usedata') || null;
   const url = val('new_url');
+  const event_date = val('new_event_date') || null;
 
   if(!name){ toast('대회명 필수'); return; }
   if(!url || !checkTemplate(url)){ toast('URL 템플릿에 {nameorbibno}, {usedata} 포함해야 합니다'); return; }
@@ -199,7 +204,7 @@ async function createMarathon(){
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({
       name, url_template:url, usedata,
-      total_distance_km: total, refresh_sec: refresh
+      total_distance_km: total, refresh_sec: refresh, event_date
     })
   });
   if(r.ok){ 
@@ -248,6 +253,7 @@ function renderList(){
         <span class="tag">${m.enabled ? '활성' : '비활성'}</span>
         <span class="tag">${m.total_distance_km}km</span>
         <span class="tag">${m.refresh_sec}s</span>
+        ${m.event_date ? `<span class="tag" style="color:var(--accent2)">${m.event_date}</span>` : ''}
       </div>
 
       <div class="row" style="margin-top:10px; gap:10px;">
@@ -277,6 +283,10 @@ function renderList(){
           <div class="field">
             <label>usedata (대회 ID)</label>
             <input class="input mono" id="usedata_${m.id}" value="${m.usedata ?? ''}" />
+          </div>
+          <div class="field">
+            <label>대회 날짜 (선택)</label>
+            <input class="input" id="event_date_${m.id}" type="date" value="${m.event_date ?? ''}" />
           </div>
         </div>
 
@@ -356,6 +366,7 @@ async function saveMarathon(mid){
   const usedata = val(`usedata_${mid}`) || null;
   const url = val(`url_${mid}`);
   const enabled = Number(val(`enabled_${mid}`)||'1');
+  const event_date = val(`event_date_${mid}`) || null;
 
   if(!name){ toast('대회명 필수'); return; }
   if(!url || !checkTemplate(url)){ toast('URL 템플릿에 {nameorbibno}, {usedata} 포함해야 합니다'); return; }
@@ -364,7 +375,7 @@ async function saveMarathon(mid){
     method:'PUT', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({
       name, url_template:url, usedata,
-      total_distance_km: total, refresh_sec: refresh, enabled
+      total_distance_km: total, refresh_sec: refresh, enabled, event_date
     })
   });
   if(r.ok){ await loadAll(); toast('저장 완료'); }

@@ -383,7 +383,9 @@ function openRace(mid){
   currentMarathon = Number(mid);
   const m = marathons.find(x => x.id === currentMarathon);
   $('raceTitle').textContent = m ? m.name : `대회 #${currentMarathon}`;
-  $('raceMeta').textContent = m ? `ID ${m.id} · ${m.total_distance_km}km · ${m.refresh_sec}s` : '';
+  let metaText = m ? `ID ${m.id} · ${m.total_distance_km}km · ${m.refresh_sec}s` : '';
+  if (m && m.event_date) metaText += ` · ${m.event_date}`;
+  $('raceMeta').textContent = metaText;
   $('viewList').style.display = 'none';
   $('viewRace').style.display = 'block';
   $('fab').style.display = 'flex';

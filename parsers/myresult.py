@@ -101,9 +101,9 @@ class MyResultParser(BaseParser):
                 continue
             
             # 컬럼 값 추출 및 정리
-            label = self._clean_value(cols[0].get_text(" ", strip=True))
-            clock = self._clean_value(cols[1].get_text(" ", strip=True))  # 통과시간
-            acc = self._clean_value(cols[3].get_text(" ", strip=True))    # 누적기록
+            label = self._clean_value(cols[0].get_text(" ", strip=True)) # 구간명
+            clock = self._clean_value(cols[1].get_text(" ", strip=True)) # 통과시간
+            acc = self._clean_value(cols[2].get_text(" ", strip=True))   # 구간기록 (net time으로 사용)
             
             # 시간 추출
             clock_time = first_time(clock)
@@ -116,7 +116,7 @@ class MyResultParser(BaseParser):
             splits.append({
                 "point_label": label,
                 "point_km": km_from_label(label),
-                "net_time": acc_time or "",      # 누적기록
+                "net_time": acc_time or "",      # 구간기록을 net_time으로 사용
                 "pass_clock": clock_time or "",  # 통과시간
                 "pace": "",
             })

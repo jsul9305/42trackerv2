@@ -145,6 +145,17 @@ class CrawlerEngine:
         """특정 대회 크롤링 처리"""
         mid = marathon["id"]
         refresh_sec = int(marathon["refresh_sec"] or 60)
+        event_date_str = marathon["event_date"] if "event_date" in marathon.keys() else None
+
+        # ✅ 대회 날짜 확인
+        if event_date_str:
+            try:
+                event_date = datetime.strptime(event_date_str, "%Y-%m-%d").date()
+                today = datetime.now().date()
+                if today < event_date:
+                    return # 아직 대회 날짜가 아님
+            except ValueError:
+                print(f"[warn] mid={mid} has invalid event_date format: {event_date_str}. Ignoring date check.")
         
         # ✅ 스케줄러로 실행 가능 여부 확인
         if not self.scheduler.should_run_marathon(mid, refresh_sec):

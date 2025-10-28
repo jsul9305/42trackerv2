@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS marathons (
   refresh_sec INTEGER NOT NULL DEFAULT 60,
   enabled INTEGER NOT NULL DEFAULT 1,
   cert_url_template TEXT,
+  event_date TEXT,
   updated_at TEXT
 );
 
@@ -85,7 +86,9 @@ def migrate_database():
         # ▼ 로컬 파일 경로 저장
         "ALTER TABLE participants ADD COLUMN finish_image_path TEXT;",
         # ▼ 추가: 대회별 완주증 URL 템플릿(있으면 사용)
-        "ALTER TABLE marathons ADD COLUMN cert_url_template TEXT;"
+        "ALTER TABLE marathons ADD COLUMN cert_url_template TEXT;",
+        # ▼ 추가: 대회 날짜
+        "ALTER TABLE marathons ADD COLUMN event_date TEXT;"
     ]
     
     with get_db() as conn:
