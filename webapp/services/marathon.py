@@ -64,41 +64,27 @@ class MarathonService:
         total_distance_km: float = 21.1,
         refresh_sec: int = 60,
         enabled: bool = True,
-        cert_url_template: Optional[str] = None
+        cert_url_template: Optional[str] = None,
+        event_date: Optional[str] = None  # Add this line
     ) -> Dict:
-        """
-        마라톤 생성
-        
-        Args:
-            name: 대회명
-            url_template: URL 템플릿 ({nameorbibno}, {usedata} 포함)
-            usedata: 대회 ID (선택)
-            total_distance_km: 총 거리 (기본: 21.1km)
-            refresh_sec: 새로고침 주기 (기본: 60초)
-            enabled: 활성화 여부 (기본: True)
-            cert_url_template: 기록증 URL 템플릿 (선택)
-        
-        Returns:
-            {'success': bool, 'marathon_id': int, 'error': str}
-        """
         # 유효성 검증
         if not name or not name.strip():
             return {'success': False, 'error': '대회명은 필수입니다'}
-        
+
         if not url_template or '{nameorbibno}' not in url_template:
             return {'success': False, 'error': 'URL 템플릿에 {nameorbibno}를 포함해야 합니다'}
-        
+
         if refresh_sec < 5:
             return {'success': False, 'error': '새로고침 주기는 최소 5초 이상이어야 합니다'}
-        
+
         try:
             with get_db() as conn:
                 cursor = conn.execute(
                     """INSERT INTO marathons(
                         name, url_template, usedata, 
                         total_distance_km, refresh_sec, enabled,
-                        cert_url_template, updated_at
-                    ) VALUES(?, ?, ?, ?, ?, ?, ?, ?)""",
+                        cert_url_template, event_date, updated_at
+                    ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)""",  # Add an additional ? placeholder
                     (
                         name.strip(),
                         url_template.strip(),
@@ -107,16 +93,17 @@ class MarathonService:
                         refresh_sec,
                         1 if enabled else 0,
                         cert_url_template.strip() if cert_url_template else None,
+                        event_date,  # Add this line
                         datetime.now().isoformat()
                     )
                 )
                 conn.commit()
-                
+
                 return {
                     'success': True,
                     'marathon_id': cursor.lastrowid
                 }
-        
+
         except Exception as e:
             return {
                 'success': False,
