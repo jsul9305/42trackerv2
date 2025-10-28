@@ -570,31 +570,107 @@ function renderGroups(){
     let collapsed = false;
     toggle.addEventListener('click', ()=>{
       collapsed = !collapsed;
-      mobileList.style.display = collapsed ? 'none' : 'block';
+      // 오타 수정: mobileList -> mobileWrap
+      mobileWrap.style.display = collapsed ? 'none' : 'block';
       tblWrap.style.display = collapsed ? 'none' : 'block';
     });
 
     wrap.appendChild(sec);
   }
 }
-
+async function extractErrorMessage(res){
+  // 우선 JSON 시도 -> 키 우선순위로 메시지 추출
+  try{
+    const data = await res.clone().json();
+    const candKeys = ['message','error','detail','msg','reason','description'];
+    for(const k of candKeys){
+      if(data && typeof data[k] === 'string' && data[k].trim()) return data[k].trim();
+    }
+    if(typeof data === 'string' && data.trim()) return data.trim();
+  }catch(_){/* pass */}
+  // 텍스트로 재시도
+  try{
+    const text = await res.clone().text();
+    if(text && text.trim()) return text.trim().slice(0, 300); // 너무 길면 컷
+  }catch(_){/* pass */}
+  return ''; // 정말 없으면 빈 문자열
+}
 /* ========== 동작 컨트롤 ========== */
 async function addP(){
   if(!currentMarathon){ alert('대회를 먼저 선택하세요.'); return; }
   const alias = $('alias').value.trim();
   const nameorbibno = $('nameorbib').value.trim();
   if(!nameorbibno){ alert('배번/이름은 필수'); return; }
-  const r = await fetch('/api/participants',{
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({marathon_id: currentMarathon, alias, nameorbibno})
-  });
-  if(r.ok){ $('nameorbib').value=''; await loadParticipants(); }
-  else{ alert('추가 실패'); }
+
+  try{
+    const r = await fetch('/api/participants',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({marathon_id: currentMarathon, alias, nameorbibno})
+    });
+
+    // 서버 응답 바디를 한 번 확보 (성공/실패 모두)
+    let data = null;
+    try { data = await r.clone().json(); } catch(_){ /* JSON 아닐 수 있음 */ }
+
+    // 실패 판단: 1) HTTP 실패  2) HTTP 200이라도 success=false
+    const failed = !r.ok || (data && data.success === false);
+
+    if(!failed){
+      // 정상 성공
+      $('nameorbib').value='';
+      await loadParticipants();
+      return;
+    }
+
+    // 실패 사유 구성
+    let msg = '';
+    if (data){
+      msg = data.error || data.message || data.detail || data.msg || data.reason || data.description || '';
+    }
+    if (!msg){
+      // 본문 키가 없거나 비어있으면 텍스트로 재시도
+      try {
+        const text = await r.clone().text();
+        if (text && text.trim()) msg = text.trim().slice(0,300);
+      } catch(_) {}
+    }
+    if (!msg){
+      // 그래도 없으면 상태 텍스트라도
+      msg = r.statusText || '원인 미상';
+    }
+
+    alert(`추가 실패 (HTTP ${r.status})\n사유: ${msg}`);
+  }catch(e){
+    alert(`추가 실패 (네트워크 오류)\n사유: ${e.message||e}`);
+  }
 }
 
 async function delRow(id){
-  await fetch('/api/participants/'+id,{method:'DELETE'});
-  await loadParticipants();
+  try{
+    const r = await fetch('/api/participants/'+id,{method:'DELETE'});
+    let data = null;
+    try { data = await r.clone().json(); } catch(_){}
+
+    const failed = !r.ok || (data && data.success === false);
+    if(!failed){
+      await loadParticipants();
+      return;
+    }
+
+    let msg = data?.error || data?.message || data?.detail || data?.msg || data?.reason || data?.description || '';
+    if(!msg){
+      try{
+        const text = await r.clone().text();
+        if(text && text.trim()) msg = text.trim().slice(0,300);
+      }catch(_){}
+    }
+    if(!msg){ msg = r.statusText || '원인 미상'; }
+
+    alert(`삭제 실패 (HTTP ${r.status})\n사유: ${msg}`);
+  }catch(e){
+    alert(`삭제 실패 (네트워크 오류)\n사유: ${e.message||e}`);
+  }
 }
 
 function setupAutoRefresh(){
