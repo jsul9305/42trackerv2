@@ -137,10 +137,10 @@
       <div class="field" style="margin-top:8px;">
         <label>URL 템플릿</label>
         <!-- <input class="input mono" id="new_url" placeholder="https://smartchip.co.kr/return_data_livephoto.asp?nameorbibno={nameorbibno}&usedata={usedata}" /> -->
-        <select class="input mono" id="url_${m.id}">
-          <option value="https://smartchip.co.kr/return_data_livephoto.asp?nameorbibno={nameorbibno}&usedata={usedata}" ${m.url_template.includes('smartchip') ? 'selected' : ''}>Smartchip</option>
-          <option value="http://time.spct.co.kr/m2.php?{usedata}&BIB_NO={nameorbibno}" ${m.url_template.includes('spct') ? 'selected' : ''}>SPCT</option>
-          <option value="https://myresult.co.kr/{usedata}/{nameorbibno}" ${m.url_template.includes('myresult') ? 'selected' : ''}>MyResult</option>
+        <select class="input mono" id="new_url">
+          <option value="https://smartchip.co.kr/return_data_livephoto.asp?nameorbibno={nameorbibno}&usedata={usedata}">Smartchip</option>
+          <option value="http://time.spct.co.kr/m2.php?{usedata}&BIB_NO={nameorbibno}">SPCT</option>
+          <option value="https://myresult.co.kr/{usedata}/{nameorbibno}">MyResult</option>
         </select>
         <div class="small muted">반드시 <b>{nameorbibno}</b>와 <b>{usedata}</b>를 포함해야 함</div>
         <div class="small muted">
