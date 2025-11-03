@@ -69,18 +69,27 @@ class RecordsService:
     @staticmethod
     def get_all_records(
         query: Optional[str] = None,
-        marathon_filter: Optional[str] = None
+        marathon_filter: Optional[str] = None,
+        group_id: Optional[int] = None,
     ) -> List[Dict]:
         """
         모든 활성 참가자의 기록을 조회, 필터링, 정렬
+        그룹 ID가 제공되면 해당 그룹의 참가자만 조회
         """
         with get_db() as conn:
-            participants = conn.execute("""
-                SELECT p.*, m.name AS marathon_name, m.total_distance_km AS default_km, m.url_template
+            sql = '''
+                SELECT p.*, g.name as group_name, m.name AS marathon_name, m.total_distance_km AS default_km, m.url_template
                 FROM participants p
-                JOIN marathons m ON m.id = p.marathon_id
+                JOIN groups g ON g.id = p.group_id
+                JOIN marathons m ON m.id = g.marathon_id
                 WHERE p.active = 1
-            """).fetchall()
+            '''
+            params = []
+            if group_id:
+                sql += " AND g.id = ?"
+                params.append(group_id)
+
+            participants = conn.execute(sql, params).fetchall()
 
             items = []
             for p in participants:
@@ -106,6 +115,7 @@ class RecordsService:
                     "category": label,
                     "distance": float(dist or 0.0),
                     "marathon": p["marathon_name"],
+                    "group": p["group_name"],
                     "record": best.get("record") if best else "",
                     "clock": best.get("clock") if best else "",
                     "cert_web": cert_web,

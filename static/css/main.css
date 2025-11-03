@@ -141,3 +141,62 @@
     /* 기존 .clock 유지 + net 칸 추가 */
     .mrow .c.clock{ flex:0 0 140px; }
     .mrow .c.net{   flex:0 0 120px; }
+
+.main-row {
+    cursor: pointer;
+}
+.main-row:hover {
+    background-color: rgba(128, 128, 128, 0.1);
+}
+.splits-tbody {
+    background-color: rgba(128, 128, 128, 0.05);
+}
+.split-header-row td {
+    font-weight: bold;
+    color: var(--text);
+}
+.split-detail-row td {
+    color: var(--muted);
+}
+
+.split-details {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+}
+.split-detail-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 4px 0;
+    font-size: 14px;
+}
+.split-detail-item .label {
+    font-weight: 500;
+}
+
+.splits-cell {
+    text-align: left;
+    font-size: 13px;
+    line-height: 1.6;
+}
+.splits-cell > div {
+    display: flex;
+    gap: 8px;
+}
+.splits-cell .split-label {
+    font-weight: 500;
+    flex-basis: 80px;
+    flex-shrink: 0;
+}
+.splits-cell .split-time {
+    flex-basis: 80px;
+    flex-shrink: 0;
+    color: var(--muted);
+}
+.splits-cell .split-net {
+    flex-basis: 100px;
+    flex-shrink: 0;
+}
+.splits-cell .split-clock {
+    color: var(--muted);
+}

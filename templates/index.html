@@ -8,6 +8,7 @@
   <!-- 서버에서 전달된 초기 대회 ID (없으면 null) -->
   <script>
     window.INIT_MARATHON_ID = {{ init_mid if init_mid is not none else 'null' }};
+    window.INIT_GROUP_CODE = {{ init_group_code | tojson }};
   </script>
   <link rel="stylesheet" href="{{ url_for('static_routes.static', filename='css/main.css') }}">
 </head>
@@ -47,10 +48,10 @@
         <span class="small muted">서버 유효성 검사 후 그룹이면 <code>/group/&lt;code&gt;</code>, 대회면 <code>/code/&lt;code&gt;</code>로 이동.</span>
       </form>
     </div>
-    <!-- 1) 대회 리스트 -->
+    <!-- 1) 그룹 리스트 -->
     <div id="viewList">
-      <div class="small muted">대회를 선택하세요. (카드는 /race/&lt;id&gt; 링크로 열립니다)</div>
-      <div id="marathonGrid" class="grid"></div>
+      <div class="small muted">참여할 그룹을 선택하거나, 참여코드를 입력하거나, 새 그룹을 만드세요.</div>
+      <div id="groupGrid" class="grid"></div>
     </div>
 
     <!-- 2) 특정 대회 보기 (종목 그룹) -->

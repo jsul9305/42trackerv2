@@ -103,7 +103,8 @@ class MyResultParser(BaseParser):
             # 컬럼 값 추출 및 정리
             label = self._clean_value(cols[0].get_text(" ", strip=True)) # 구간명
             clock = self._clean_value(cols[1].get_text(" ", strip=True)) # 통과시간
-            acc = self._clean_value(cols[2].get_text(" ", strip=True))   # 구간기록 (net time으로 사용)
+            # 구간기록 (cols[2]) 대신 누적기록 (cols[3])을 net_time으로 사용
+            acc = self._clean_value(cols[3].get_text(" ", strip=True))   # 누적기록
             
             # 시간 추출
             clock_time = first_time(clock)
@@ -254,7 +255,7 @@ class MyResultParser(BaseParser):
         base_host = f"https://{host or 'www.myresult.co.kr'}"
 
         # <img> 태그에서 찾기
-        for img in soup.select('img[src*="/upload/certificate/"]'):
+        for img in soup.select('img[src*="certificate"], img[src*="record"], img[src*="기록증"]'):
             if img.get("src"):
                 cert_url = urllib.parse.urljoin(base_host, img["src"])
                 if not any(a['url'] == cert_url for a in assets):
@@ -265,7 +266,7 @@ class MyResultParser(BaseParser):
                     })
 
         # <a> 태그에서 찾기
-        for link in soup.select('a[href*="/upload/certificate/"]'):
+        for link in soup.select('a[href*="certificate"], a[href*="record"], a[href*="기록증"], a[download]'):
             if link.get("href"):
                 cert_url = urllib.parse.urljoin(base_host, link["href"])
                 if not any(a['url'] == cert_url for a in assets):

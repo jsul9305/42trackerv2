@@ -53,19 +53,30 @@ async function createMarathon(){
 async function loadAll(){
   const r = await fetch('/api/marathons'); marathons = await r.json();
   
-  // ✅ 엑셀 업로드용 마라톤 선택 목록 채우기
   const select = $('marathon-select');
   select.innerHTML = '';
   if(!marathons.length){
     select.innerHTML = '<option value="">등록된 대회가 없습니다</option>';
   } else {
-    for(const m of marathons){
-      select.innerHTML += `<option value="${m.id}">${escapeHtml(m.name)} (ID: ${m.id})</option>`;
+    // 그룹 선택을 위해 마라톤 목록을 먼저 로드
+    let groups = [];
+    for(const m of marathons) {
+        const groupRes = await fetch(`/api/marathons/${m.id}/groups`);
+        const marathonGroups = await groupRes.json();
+        groups = groups.concat(marathonGroups.map(g => ({...g, marathon_name: m.name})));
+    }
+
+    if(!groups.length) {
+        select.innerHTML = '<option value="">등록된 그룹이 없습니다</option>';
+    } else {
+        select.innerHTML = '<option value="">그룹 선택</option>';
+        for(const g of groups) {
+            select.innerHTML += `<option value="${g.id}">${g.marathon_name} - ${escapeHtml(g.name)} (ID: ${g.id})</option>`;
+        }
     }
   }
 
   renderList();
-  // 쿼리로 특정 대회 펼치기: /admin?marathon_id=1
   const mid = new URLSearchParams(location.search).get('marathon_id');
   if(mid){ const el = document.querySelector(`[data-mid="${mid}"] details`); if(el) el.open = true; }
 }
@@ -137,95 +148,65 @@ function renderList(){
           <button class="btn primary" onclick="saveMarathon(${m.id})">저장</button>
         </div>
 
-        <!-- ✅ 여기 아래에 '참여 코드' UI 추가 -->
         <div class="row" style="margin-top:10px;">
             <div class="field">
                 <label>참여 코드</label>
-                <input class="input mono" id="code_${m.id}" value="${escapeHtml(m.join_code ?? '')}"/>
+                <input class="input mono" id="code_${m.id}" value="${escapeHtml(m.join_code ?? '')}" readonly/>
             </div>
             <button class="btn ghost block" onclick="copyCode(${m.id})">코드 복사</button>
             <button class="btn ghost block" onclick="regenerateCode(${m.id})">코드 재생성</button>
-        </div>
-        <div class="row" style="margin-top:10px;">
-            <span class="tag">딥링크:
-                <a id="code_link_${m.id}"
-                href="/code/${m.id}/${escapeHtml(m.join_code ?? '')}"
-                target="_blank">/code/${m.id}/${escapeHtml(m.join_code ?? '')}</a>
-            </span>
-        </div>
-
-        <div class="small muted" style="margin-top:8px;">
-          미리보기(로컬에서 CORS로 외부 요청은 불가할 수 있음):  
-          <span class="mono">${previewUrl(m.id)}</span>
         </div>
 
         <div style="height:8px"></div>
         <hr style="border:0; border-top:1px solid var(--border);" />
 
-        <div class="row" style="margin-top:8px;">
-          <div class="field"><label>참가자 목록</label></div>
-          <div class="spacer"></div>
-          <button class="btn" onclick="reloadParticipants(${m.id})">새로고침</button>
-        </div>
+        <div id="groups_container_${m.id}"></div>
 
-        <div class="two" style="margin-top:6px;">
-          <div class="field">
-            <label>성명(표시용, 선택)</label>
-            <input class="input" id="palias_${m.id}" placeholder="홍길동 (선택)" />
-          </div>
-          <div class="field">
-            <label>배번/이름 (nameorbibno)</label>
-            <input class="input" id="pbib_${m.id}" placeholder="예: 10396 또는 홍길동" />
-          </div>
-        </div>
-        <div class="row" style="margin-top:6px;">
-          <button class="btn primary" onclick="addParticipant(${m.id})">+ 참가자 추가</button>
-        </div>
-
-        <div id="plist_${m.id}" class="plist"></div>
       </details>
     `;
 
     wrap.appendChild(card);
-    // 참가자 즉시 로드
-    reloadParticipants(m.id);
-    // ✅ 참여 코드 채우기 (백엔드에 /api/admin/marathons/:id/code가 있다고 가정)
-    fillJoinCode(m.id);
+    loadGroupsForMarathon(m.id);
   }
-}
-async function fillJoinCode(mid){
-  try{
-    const r = await fetch(`/api/admin/marathons/${mid}/code`);
-    if(!r.ok) return;
-    const d = await r.json(); // {marathon_id, join_code, expires_at}
-    if(!d.join_code) return;
-    const input = $(`code_${mid}`);
-    const link  = $(`code_link_${mid}`);
-    if (input) input.value = d.join_code;
-    if (link) {
-      link.href = `/code/${mid}/${escapeHtml(d.join_code)}`;
-      link.textContent = `/code/${mid}/${escapeHtml(d.join_code)}`;
-    }
-  }catch(e){ /* 무시 */ }
 }
 
-function updateJoinLink(mid, code){
-  const link  = $(`code_link_${mid}`);
-  if (link) {
-    link.href = `/code/${mid}/${escapeHtml(code)}`;
-    link.textContent = `/code/${mid}/${escapeHtml(code)}`;
-  }
+async function loadGroupsForMarathon(marathonId) {
+    const container = $(`groups_container_${marathonId}`);
+    const groupRes = await fetch(`/api/marathons/${marathonId}/groups`);
+    const groups = await groupRes.json();
+    container.innerHTML = '<h4>그룹 목록</h4>';
+
+    if (!groups.length) {
+        container.innerHTML += '<div class="small muted">등록된 그룹이 없습니다.</div>';
+    }
+
+    groups.forEach(g => {
+        const groupEl = document.createElement('div');
+        groupEl.className = 'group-card';
+        groupEl.innerHTML = `
+            <h5>${g.name} (ID: ${g.id}) - 코드: <code>${g.join_code}</code></h5>
+            <div class="two" style="margin-top:6px;">
+              <div class="field">
+                <label>성명(표시용, 선택)</label>
+                <input class="input" id="palias_${g.id}" placeholder="홍길동 (선택)" />
+              </div>
+              <div class="field">
+                <label>배번/이름 (nameorbibno)</label>
+                <input class="input" id="pbib_${g.id}" placeholder="예: 10396 또는 홍길동" />
+              </div>
+            </div>
+            <div class="row" style="margin-top:6px;">
+              <button class="btn primary" onclick="addParticipant(${g.id})">+ 참가자 추가</button>
+            </div>
+            <div id="plist_${g.id}" class="plist"></div>
+        `;
+        container.appendChild(groupEl);
+        reloadParticipants(g.id);
+    });
 }
 
 function escapeHtml(s){
   return String(s).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'","&#039;");
-}
-
-function previewUrl(mid){
-  // 카드 렌더 직후 값으로 간단 프리뷰 문자열만 구성
-  const m = marathons.find(x=>x.id===mid); if(!m) return '';
-  const ex = (m.url_template||'').replace('{nameorbibno}','<BIB>').replace('{usedata}', m.usedata || '<USEDATA>');
-  return ex;
 }
 
 function copyLink(mid){
@@ -240,20 +221,19 @@ function copyCode(mid) {
     .catch(()=>prompt('복사 실패. 수동 복사:', v));
 }
 
-function regenerateCode(mid) {
+async function regenerateCode(mid) {
   try{
-    const r = await fetch(`/api/admin/marathons/${mid}/regen-join-code`, { method:'POST' });
+    const r = await fetch(`/api/marathons/${mid}/regenerate_code`, { method:'POST' });
     const d = await r.json();
     if(!r.ok || !d.join_code){ return toast(d.description || d.error || '코드 재생성 실패'); }
     const input = $(`code_${mid}`);
     if (input) input.value = d.join_code;
-    updateJoinLink(mid, d.join_code);
     toast(`새 코드: ${d.join_code}`);
   }catch(e){
     toast('네트워크 오류');
   }
 }
-/* 저장 */
+
 async function saveMarathon(mid){
   const name = val(`name_${mid}`);
   const total = num(val(`total_${mid}`), 21.1);
@@ -277,11 +257,10 @@ async function saveMarathon(mid){
   else{ const t = await r.text().catch(()=> '오류'); toast('저장 실패\n'+t); }
 }
 
-/* 참가자 관리 */
-async function reloadParticipants(mid){
-  const r = await fetch(`/api/participants?marathon_id=${mid}`);
+async function reloadParticipants(groupId){
+  const r = await fetch(`/api/participants?group_id=${groupId}`);
   const list = await r.json();
-  const box = $(`plist_${mid}`); box.innerHTML = '';
+  const box = $(`plist_${groupId}`); box.innerHTML = '';
   if(!list.length){
     box.innerHTML = '<div class="small muted">등록된 참가자가 없습니다.</div>'; return;
   }
@@ -294,54 +273,55 @@ async function reloadParticipants(mid){
         <div class="small muted">ID ${p.id} · active=${p.active}</div>
       </div>
       <div class="row">
-        <a class="btn" href="/race/${p.marathon_id}" title="해당 대회 열기">대회보기</a>
-        <button class="btn danger" onclick="delParticipant(${p.id}, ${mid})">삭제</button>
+        <button class="btn danger" onclick="delParticipant(${p.id}, ${groupId})">삭제</button>
       </div>
     `;
     box.appendChild(div);
   }
 }
 
-async function addParticipant(mid){
-  const alias = val(`palias_${mid}`);
-  const nameorbibno = val(`pbib_${mid}`);
+async function addParticipant(groupId){
+  const alias = val(`palias_${groupId}`);
+  const nameorbibno = val(`pbib_${groupId}`);
   if(!nameorbibno){ toast('배번/이름은 필수'); return; }
   const r = await fetch('/api/participants', {
     method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ marathon_id: mid, alias, nameorbibno })
+    body: JSON.stringify({ group_id: groupId, alias, nameorbibno })
   });
-  if(r.ok){ $(`pbib_${mid}`).value=''; await reloadParticipants(mid); toast('추가 완료'); }
+  if(r.ok){ $(`pbib_${groupId}`).value=''; $(`palias_${groupId}`).value=''; await reloadParticipants(groupId); toast('추가 완료'); }
   else{ const t=await r.text().catch(()=> '오류'); toast('추가 실패\n'+t); }
 }
 
-async function delParticipant(pid, mid){
+async function delParticipant(pid, groupId){
   if(!confirm('정말 삭제할까요?')) return;
   await fetch(`/api/participants/${pid}`, {method:'DELETE'});
-  await reloadParticipants(mid);
+  await reloadParticipants(groupId);
 }
 
-/* 초기 진입: ?marathon_id= 로 특정 카드 펼치기 지원 */
 loadAll();
 
-// ✅ 엑셀 업로드 폼 제출 핸들러
 $('upload-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const form = e.target;
   const formData = new FormData(form);
-  const marathonId = formData.get('marathon_id');
+  const groupId = formData.get('marathon_id'); // This is now group_id
   const file = formData.get('file');
 
-  if (!marathonId) {
-    toast('업로드할 마라톤을 선택해주세요.');
+  if (!groupId) {
+    toast('업로드할 그룹을 선택해주세요.');
     return;
   }
   if (!file || file.size === 0) {
     toast('업로드할 엑셀 파일을 선택해주세요.');
     return;
   }
+  
+  // FormData에 group_id를 명시적으로 설정
+  formData.set('group_id', groupId);
+  formData.delete('marathon_id');
 
   const r = await fetch('/api/participants/upload_excel', { method: 'POST', body: formData });
   const result = await r.json();
   toast(result.message || (result.error ? `오류: ${result.error}`: '알 수 없는 응답'));
-  if(r.ok) await reloadParticipants(marathonId);
+  if(r.ok) await reloadParticipants(groupId);
 });

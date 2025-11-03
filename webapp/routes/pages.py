@@ -1,8 +1,8 @@
 from flask import Blueprint, render_template, request, redirect, url_for
 
 from webapp.services.records import RecordsService
-from webapp.services.marathon import MarathonService  # Import MarathonService module
-
+from webapp.services.marathon import MarathonService
+from webapp.services.group import get_group_by_id, validate_code
 
 pages_bp = Blueprint('pages', __name__)
 
@@ -10,7 +10,7 @@ pages_bp = Blueprint('pages', __name__)
 @pages_bp.route("/")
 def page_index():
     # 리스트 뷰
-    return render_template("index.html", init_mid=None)
+    return render_template("index.html", init_mid=None, init_group_code=None)
 
 @pages_bp.route("/race/<int:mid>")
 def page_race_mid(mid: int):
@@ -33,8 +33,15 @@ def page_admin():
 def ui_records():
     q = request.args.get("q", "").strip()
     m = request.args.get("m", "").strip()
-    items = RecordsService.get_all_records(query=q, marathon_filter=m)
-    return render_template("records.html", items=items, q=q, m=m)
+    group_id = request.args.get("group_id", type=int)
+    
+    items = RecordsService.get_all_records(query=q, marathon_filter=m, group_id=group_id)
+    
+    group = None
+    if group_id:
+        group = get_group_by_id(group_id)
+
+    return render_template("records.html", items=items, q=q, m=m, group=group)
 
 # ================== 신규: 참여 코드 진입 ==================
 @pages_bp.route("/code/<string:join_code>")
@@ -63,7 +70,11 @@ def page_group_code(group_code: str):
     if not code:
         return redirect(url_for("pages.page_index"))
 
-    # 그룹 유효성 확인 (없으면 메인으로)
-    # 존재한다면 index.html 로 내려보내고, 프런트에서 code를 사용해 그룹 뷰를 열도록 해도 됨
-    # 예: init_group_code를 Jinja 변수로 전달
-    return render_template("index.html", init_mid=None, init_group_code=code)
+    # 그룹 유효성 확인
+    result = validate_code(code)
+    if not result["valid"]:
+        return redirect(url_for("pages.page_index"))
+
+    group = result["group"]
+    # 존재한다면 index.html 로 내려보내고, 프런트에서 code를 사용해 그룹 뷰를 열도록 함
+    return render_template("index.html", init_mid=group["marathon_id"], init_group_code=code)

@@ -6,7 +6,13 @@ from bs4 import BeautifulSoup
 from webapp.services.marathon import MarathonService
 from webapp.services.participant import ParticipantService
 from webapp.services.records import RecordsService
-from webapp.services.group import GroupService
+from webapp.services.group import (
+    create_group,
+    validate_code,
+    join_group,
+    get_groups_by_marathon,
+    get_all_groups,
+)
 
 api_bp = Blueprint('api', __name__, url_prefix='/api')
 
@@ -14,12 +20,7 @@ api_bp = Blueprint('api', __name__, url_prefix='/api')
 # -------------------- Marathons --------------------
 @api_bp.route("/marathons", methods=["GET"])
 def api_list_marathons_with_code():
-    """
-    GET /api/marathons
-    마라톤 목록을 반환 (join_code 포함)
-    """
     marathons = MarathonService.list_marathons()
-    # 프런트가 사용하는 필드 위주로 안전하게 선별
     payload = [
         {
             "id": m.get("id"),
@@ -37,14 +38,9 @@ def api_list_marathons_with_code():
 
 @api_bp.route("/marathons", methods=["POST"])
 def api_create_marathon():
-    """
-    POST /api/marathons
-    대회 생성 + join_code 자동 생성, 응답에 marathon_id와 join_code 포함
-    """
     data = request.get_json(force=True) or {}
     result = MarathonService.create_marathon(**data)
     if result.get('success'):
-        # result: {"success": True, "marathon_id": ..., "join_code": "..."}
         return jsonify(result), 201
     return jsonify({"error": result.get('error', 'Failed to create marathon')}), 400
 
@@ -58,16 +54,9 @@ def api_update_marathon(mid: int):
 
 @api_bp.route("/marathons/code/<join_code>", methods=["GET"])
 def api_get_marathon_by_code(join_code: str):
-    """
-    GET /api/marathons/code/<join_code>
-    입력 코드로 대회를 검색. 없으면 404
-    """
-    # Fetch marathon information using the join code
     m = MarathonService.get_marathon_by_join_code(join_code)
     if not m:
         return jsonify({"error": "Marathon not found for the provided join code"}), 404
-
-    # 필요한 필드만 노출
     payload = {
         "id": m.get("id"),
         "name": m.get("name"),
@@ -82,28 +71,84 @@ def api_get_marathon_by_code(join_code: str):
 
 @api_bp.route("/marathons/<int:mid>/regenerate_code", methods=["POST"])
 def api_regenerate_marathon_code(mid: int):
-    """
-    POST /api/marathons/<mid>/regenerate_code
-    관리자가 특정 대회의 join_code를 재생성
-    """
     result = MarathonService.regenerate_join_code(mid)
     if result.get('success'):
-        # result: {"success": True, "join_code": "..."}
         return jsonify(result)
     return jsonify({"error": result.get('error', 'Failed to regenerate join code')}), 400
+
+# -------------------- Groups --------------------
+@api_bp.route("/groups", methods=["GET"])
+def api_get_all_groups():
+    groups = get_all_groups()
+    return jsonify(groups)
+
+@api_bp.route("/groups", methods=["POST"])
+def api_create_group():
+    data = request.get_json(force=True) or {}
+    marathon_id = data.get("marathon_id")
+    name = data.get("name")
+    result = create_group(marathon_id, name)
+    if result.get("success"):
+        return jsonify(result), 201
+    return jsonify({"error": result.get("error", "Failed to create group")}), 400
+
+@api_bp.route("/groups/join", methods=["POST"])
+def api_join_group():
+    data = request.get_json(force=True) or {}
+    join_code = data.get("join_code")
+    bib_number = data.get("bib_number")
+    result = join_group(join_code, bib_number)
+    if result.get("success"):
+        return jsonify(result), 201
+    return jsonify({"error": result.get("error", "Failed to join group")}), 400
+
+
+@api_bp.route("/groups/validate", methods=["POST"])
+def api_validate_group_code():
+    data = request.get_json(force=True) or {}
+    code = (data.get("join_code") or "").strip().upper()
+    if not code:
+        return jsonify({"valid": False, "message": "code is required"}), 400
+    result = validate_code(code)
+    status = 200 if result.get("valid") else 404
+    return jsonify(result), status
+
+@api_bp.route("/marathons/<int:marathon_id>/groups", methods=["GET"])
+def api_get_marathon_groups(marathon_id: int):
+    groups = get_groups_by_marathon(marathon_id)
+    return jsonify(groups)
+
+@api_bp.route("/code/resolve", methods=["POST"])
+def api_resolve_code():
+    data = request.get_json(force=True) or {}
+    code = (data.get("code") or "").strip().upper()
+    if not code:
+        return jsonify({"error": "Code is required"}), 400
+
+    group_result = validate_code(code)
+    if group_result["valid"]:
+        return jsonify({"type": "group", "group": group_result["group"]})
+
+    marathon = MarathonService.get_marathon_by_join_code(code)
+    if marathon:
+        return jsonify({"type": "marathon", "marathon": marathon})
+
+    return jsonify({"error": "Invalid code"}), 404
 
 # -------------------- Participants --------------------
 @api_bp.route("/participants", methods=["GET"])
 def api_list_participants():
-    marathon_id = request.args.get("marathon_id", type=int)
-    participants = ParticipantService.list_participants(marathon_id=marathon_id)
+    group_id = request.args.get("group_id", type=int)
+    if not group_id:
+        return jsonify({"error": "group_id is required"}), 400
+    participants = ParticipantService.list_participants(group_id=group_id)
     return jsonify(participants)
 
 @api_bp.route("/participants", methods=["POST"])
 def api_create_participant():
     data = request.get_json(force=True)
     result = ParticipantService.create_participant(
-        marathon_id=data.get('marathon_id'),
+        group_id=data.get('group_id'),
         nameorbibno=data.get('nameorbibno'),
         alias=data.get('alias')
     )
@@ -113,19 +158,14 @@ def api_create_participant():
 
 @api_bp.route("/participants/upload_excel", methods=["POST"])
 def api_upload_participants_excel():
-    """
-    엑셀 파일로 참가자를 일괄 등록합니다.
-    - form-data로 'file' (엑셀 파일)과 'marathon_id'를 받습니다.
-    - 엑셀 파일에는 '배번' (nameorbibno)과 '이름' (alias) 컬럼이 있어야 합니다.
-    """
     if 'file' not in request.files:
         return jsonify({"error": "엑셀 파일이 없습니다."}), 400
     file = request.files['file']
     if file.filename == '':
         return jsonify({"error": "파일을 선택해주세요."}), 400
-    marathon_id = request.form.get('marathon_id', type=int)
-    if not marathon_id:
-        return jsonify({"error": "마라톤 ID가 필요합니다."}), 400
+    group_id = request.form.get('group_id', type=int)
+    if not group_id:
+        return jsonify({"error": "그룹 ID가 필요합니다."}), 400
 
     if file and (file.filename.endswith('.xlsx') or file.filename.endswith('.xls')):
         try:
@@ -146,7 +186,7 @@ def api_upload_participants_excel():
             if not participants_to_add:
                 return jsonify({"error": "추가할 참가자 데이터가 없습니다."}), 400
 
-            result = ParticipantService.bulk_create_participants(marathon_id, participants_to_add)
+            result = ParticipantService.bulk_create_participants(group_id, participants_to_add)
 
             payload = {
                 "ok": bool(result.get("success")),
@@ -225,34 +265,6 @@ def debug_participant():
 def api_records():
     q = request.args.get("q")
     m = request.args.get("m")
-    items = RecordsService.get_all_records(query=q, marathon_filter=m)
+    group_id = request.args.get("group_id", type=int)
+    items = RecordsService.get_all_records(query=q, marathon_filter=m, group_id=group_id)
     return jsonify({"items": items})
-
-@api_bp.route("/groups", methods=["POST"])
-def api_create_group():
-    """
-    요청: { "marathon_id": 123, "group_name": "PAC A" }
-    응답: { "success": true, "group_id": 1, "group_code": "AB12CD34" }
-    """
-    data = request.get_json(force=True) or {}
-    marathon_id = data.get("marathon_id")
-    group_name = data.get("group_name")
-    result = GroupService.create_group(marathon_id, group_name)
-    if result.get("success"):
-        return jsonify(result), 201
-    return jsonify({"error": result.get("error", "Failed to create group")}), 400
-
-
-@api_bp.route("/groups/validate", methods=["POST"])
-def api_validate_group_code():
-    """
-    요청: { "code": "AB12CD34" }
-    응답: { "valid": true, "group_id": ..., "marathon_id": ..., "name": "..." }
-    """
-    data = request.get_json(force=True) or {}
-    code = (data.get("code") or "").strip().upper()
-    if not code:
-        return jsonify({"valid": False, "message": "code is required"}), 400
-    result = GroupService.validate_code(code)
-    status = 200 if result.get("valid") else 404
-    return jsonify(result), status

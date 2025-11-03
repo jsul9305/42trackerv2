@@ -59,3 +59,18 @@ def parse_time_to_sec(t: str):
             return m * 60 + s
     except:
         return None
+
+def hms_from_sec(seconds: int, show_hour: bool = True) -> str:
+    """
+    Converts seconds to HH:MM:SS or MM:SS format.
+    """
+    if seconds is None:
+        return None
+    seconds = int(seconds)
+    h = seconds // 3600
+    m = (seconds % 3600) // 60
+    s = seconds % 60
+    if show_hour or h > 0:
+        return f"{h:02d}:{m:02d}:{s:02d}"
+    else:
+        return f"{m:02d}:{s:02d}"

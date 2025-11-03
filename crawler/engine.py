@@ -24,6 +24,7 @@ from utils.network_utils import get_session
 from utils.distance_utils import ensure_finish_label
 from config.settings import CRAWLER_MAX_WORKERS
 from webapp.services.records import RecordsService # ✅ 완주 시간 계산기 import
+from config.constants import FINISH_KEYWORDS_KO, FINISH_KEYWORDS_EN
 
 
 class CrawlerEngine:
@@ -164,12 +165,13 @@ class CrawlerEngine:
         tick = time.time()
         
         try:
-            # 참가자 조회
+            # 참가자 조회 (그룹 기반)
             with get_db() as conn:
-                participants = conn.execute(
-                    "SELECT * FROM participants WHERE marathon_id=? AND active=1",
-                    (mid,)
-                ).fetchall()
+                participants = conn.execute("""
+                    SELECT p.* FROM participants p
+                    JOIN groups g ON p.group_id = g.id
+                    WHERE g.marathon_id = ? AND p.active = 1
+                """, (mid,)).fetchall()
             
             if not participants:
                 # ✅ 참가자 없어도 실행 기록 (다음 주기까지 대기)
@@ -370,7 +372,7 @@ class CrawlerEngine:
                 inferred.append({
                     "kind": "certificate",
                     "host": "myresult.co.kr",
-                    "url": f"https://myresult.co.kr/upload/certificate/{u}/{b}"
+                    "url": f"https://myresult.co.kr/upload/certificate/{u}/{b}.jpg"
                 })
 
             # 2) SmartChip(기록증 뷰어 PHP): https://image.smartchip.co.kr/record_data/TriRun_Record.php?Rally_id={usedata}&Bally_no={bib}
@@ -542,7 +544,8 @@ class CrawlerEngine:
                 for s in splits:
                     if isinstance(s, dict):
                         point_label = (s.get("point_label") or "").lower()
-                        if "finish" in point_label or "도착" in point_label:
+                        if any(k in point_label for k in FINISH_KEYWORDS_EN) or \
+                           any(k in point_label for k in FINISH_KEYWORDS_KO):
                             is_finished = True
                             break
             if isinstance(meta, dict) and meta:
