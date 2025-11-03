@@ -2,6 +2,10 @@ from flask import Blueprint, request, jsonify
 import pandas as pd
 import requests
 from bs4 import BeautifulSoup
+import gpxpy
+import gpxpy.gpx
+import geojson
+import json
 
 from webapp.services.marathon import MarathonService
 from webapp.services.participant import ParticipantService
@@ -16,6 +20,72 @@ from webapp.services.group import (
 
 api_bp = Blueprint('api', __name__, url_prefix='/api')
 
+def _process_gpx_file(gpx_file, total_distance_km):
+    """Parses a GPX file and returns a GeoJSON string."""
+    try:
+        gpx = gpxpy.parse(gpx_file.read())
+        points = []
+        for track in gpx.tracks:
+            for segment in track.segments:
+                for point in segment.points:
+                    points.append((point.longitude, point.latitude))
+        
+        split_points = {}
+        # First, try to get split points from waypoints
+        for waypoint in gpx.waypoints:
+            if waypoint.name:
+                split_points[waypoint.name] = (waypoint.longitude, waypoint.latitude)
+
+        # If no waypoints, calculate splits by distance
+        if not split_points and points:
+            track_points = []
+            for track in gpx.tracks:
+                for segment in track.segments:
+                    track_points.extend(segment.points)
+
+            if track_points:
+                # Define standard splits in km
+                standard_splits = {
+                    5: "5K", 10: "10K", 15: "15K", 20: "20K", 
+                    21.0975: "Half", 25: "25K", 30: "30K", 
+                    35: "35K", 40: "40K"
+                }
+                
+                target_splits = {dist: label for dist, label in standard_splits.items() if dist < total_distance_km}
+                
+                cumulative_distance = 0
+                sorted_dists = sorted(target_splits.keys())
+                dist_idx = 0
+
+                for i in range(1, len(track_points)):
+                    dist_2d = track_points[i-1].distance_2d(track_points[i])
+                    if dist_2d is None: continue
+                    
+                    prev_cumulative_dist = cumulative_distance
+                    cumulative_distance += dist_2d / 1000
+
+                    if dist_idx < len(sorted_dists):
+                        target_dist = sorted_dists[dist_idx]
+                        if prev_cumulative_dist < target_dist <= cumulative_distance:
+                            label = target_splits[target_dist]
+                            split_points[label] = (track_points[i].longitude, track_points[i].latitude)
+                            dist_idx += 1
+                
+                # Always add the finish point as the last point of the track
+                last_point = track_points[-1]
+                split_points["Finish"] = (last_point.longitude, last_point.latitude)
+        
+        if points:
+            line = geojson.LineString(points)
+            properties = {"split_points": split_points}
+            return json.dumps(geojson.Feature(geometry=line, properties=properties))
+
+    except Exception as e:
+        # In a real app, you'd want to log this error
+        print(f"Error processing GPX file: {e}")
+        return None
+    return None
+
 
 # -------------------- Marathons --------------------
 @api_bp.route("/marathons", methods=["GET"])
@@ -25,6 +95,8 @@ def api_list_marathons_with_code():
         {
             "id": m.get("id"),
             "name": m.get("name"),
+            "url_template": m.get("url_template"),
+            "usedata": m.get("usedata"),
             "total_distance_km": m.get("total_distance_km"),
             "refresh_sec": m.get("refresh_sec"),
             "enabled": bool(m.get("enabled")),
@@ -38,7 +110,24 @@ def api_list_marathons_with_code():
 
 @api_bp.route("/marathons", methods=["POST"])
 def api_create_marathon():
-    data = request.get_json(force=True) or {}
+    data = request.form.to_dict()
+    
+    # Type conversion
+    if 'refresh_sec' in data:
+        data['refresh_sec'] = int(data['refresh_sec'])
+    if 'total_distance_km' in data:
+        data['total_distance_km'] = float(data['total_distance_km'])
+
+    if 'gpx_file' in request.files:
+        file = request.files['gpx_file']
+        if file.filename != '':
+            total_distance_km = float(data.get('total_distance_km', 0))
+            course_geo_json = _process_gpx_file(file, total_distance_km)
+            if course_geo_json:
+                data['course_geo_json'] = course_geo_json
+            else:
+                return jsonify({"error": "Failed to parse GPX file"}), 400
+
     result = MarathonService.create_marathon(**data)
     if result.get('success'):
         return jsonify(result), 201
@@ -46,7 +135,34 @@ def api_create_marathon():
 
 @api_bp.route("/marathons/<int:mid>", methods=["PUT"])
 def api_update_marathon(mid: int):
-    data = request.get_json(force=True)
+    data = request.form.to_dict()
+    
+    # Type conversion
+    if 'refresh_sec' in data:
+        data['refresh_sec'] = int(data['refresh_sec'])
+    if 'total_distance_km' in data:
+        data['total_distance_km'] = float(data['total_distance_km'])
+
+    if 'gpx_file' in request.files:
+        file = request.files['gpx_file']
+        if file.filename != '':
+            total_distance_km = float(data.get('total_distance_km', 0))
+            # If total_distance_km is not in the form, get it from the DB
+            if not total_distance_km:
+                marathon = MarathonService.get_marathon(mid)
+                if marathon:
+                    total_distance_km = marathon.get('total_distance_km', 0)
+
+            course_geo_json = _process_gpx_file(file, total_distance_km)
+            if course_geo_json:
+                data['course_geo_json'] = course_geo_json
+            else:
+                return jsonify({"error": "Failed to parse GPX file"}), 400
+
+    # Convert 'enabled' from string to boolean if it exists
+    if 'enabled' in data:
+        data['enabled'] = data['enabled'] in ['true', '1', 'on']
+
     result = MarathonService.update_marathon(mid, **data)
     if result['success']:
         return jsonify(result)
@@ -75,6 +191,31 @@ def api_regenerate_marathon_code(mid: int):
     if result.get('success'):
         return jsonify(result)
     return jsonify({"error": result.get('error', 'Failed to regenerate join code')}), 400
+
+
+@api_bp.route("/marathons/<int:mid>/map_data", methods=["GET"])
+def api_get_marathon_map_data(mid: int):
+    marathon = MarathonService.get_marathon(mid)
+    if not marathon:
+        return jsonify({"error": "Marathon not found"}), 404
+    
+    try:
+        course_geo_json = json.loads(marathon.get("course_geo_json")) if marathon.get("course_geo_json") else None
+    except json.JSONDecodeError:
+        course_geo_json = None
+
+    payload = {
+        "id": marathon.get("id"),
+        "name": marathon.get("name"),
+        "course_geo_json": course_geo_json,
+    }
+    return jsonify(payload)
+
+
+@api_bp.route("/marathons/<int:marathon_id>/participants", methods=["GET"])
+def api_list_marathon_participants(marathon_id: int):
+    participants = ParticipantService.list_participants_by_marathon(marathon_id)
+    return jsonify(participants)
 
 # -------------------- Groups --------------------
 @api_bp.route("/groups", methods=["GET"])

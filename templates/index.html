@@ -11,6 +11,8 @@
     window.INIT_GROUP_CODE = {{ init_group_code | tojson }};
   </script>
   <link rel="stylesheet" href="{{ url_for('static_routes.static', filename='css/main.css') }}">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 </head>
 <body>
   <div class="topbar">
@@ -61,8 +63,11 @@
         <div id="raceTitle" style="font-weight:700;"></div>
         <span class="small muted" id="raceMeta"></span>
         <div class="spacer"></div>
+        <a id="fullMapBtn" class="btn" href="#" target="_blank" style="display: none;">전체 지도</a>
         <button class="btn" onclick="copyShare()">공유</button>
       </div>
+
+      <div id="map" style="height: 400px; margin-top: 8px;"></div>
 
       <!-- 참가자 추가 -->
       <div class="card" style="margin-top:8px;">

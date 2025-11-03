@@ -1,5 +1,11 @@
 let marathons = [];
 
+const URL_TEMPLATES = {
+  "Smartchip": "https://smartchip.co.kr/return_data_livephoto.asp?nameorbibno={nameorbibno}&usedata={usedata}",
+  "SPCT": "http://time.spct.co.kr/m2.php?{usedata}&BIB_NO={nameorbibno}",
+  "MyResult": "https://myresult.co.kr/{usedata}/{nameorbibno}"
+};
+
 function $(id){ return document.getElementById(id); }
 function val(id){ return $(id).value.trim(); }
 function num(v, def){ const n = Number(v); return Number.isFinite(n) ? n : def; }
@@ -29,20 +35,32 @@ async function createMarathon(){
   const usedata = val('new_usedata') || null;
   const url = val('new_url');
   const event_date = val('new_event_date') || null;
+  const gpx_file_input = $('new_gpx_file');
+  const gpx_file = gpx_file_input.files[0];
 
   if(!name){ toast('대회명 필수'); return; }
   if(!url || !checkTemplate(url)){ toast('URL 템플릿에 {nameorbibno}, {usedata} 포함해야 합니다'); return; }
 
+  const formData = new FormData();
+  formData.append('name', name);
+  formData.append('total_distance_km', total);
+  formData.append('refresh_sec', refresh);
+  if (usedata) formData.append('usedata', usedata);
+  formData.append('url_template', url);
+  if (event_date) formData.append('event_date', event_date);
+  if (gpx_file) {
+    formData.append('gpx_file', gpx_file);
+  }
+
   const r = await fetch('/api/marathons', {
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({
-      name, url_template:url, usedata,
-      total_distance_km: total, refresh_sec: refresh, event_date
-    })
+    method:'POST',
+    body: formData
   });
-  if(r.ok){ 
+
+  if(r.ok){
     $('new_name').value=''; $('new_total').value='21.1';
     $('new_refresh').value='60'; $('new_usedata').value=''; $('new_url').value='';
+    gpx_file_input.value = ''; // Clear the file input
     await loadAll(); toast('대회 추가 완료');
   } else {
     const t = await r.text().catch(()=> '오류'); toast('추가 실패\n'+t);
@@ -102,6 +120,7 @@ function renderList(){
 
       <div class="row" style="margin-top:10px; gap:10px;">
         <a class="btn block" href="/race/${m.id}">사용자 화면 열기</a>
+        <a class="btn block" href="/race/${m.id}/map" target="_blank">전체 지도 보기</a>
         <button class="btn ghost block" onclick="copyLink(${m.id})">링크 복사</button>
       </div>
 
@@ -132,11 +151,15 @@ function renderList(){
             <label>대회 날짜 (선택)</label>
             <input class="input" id="event_date_${m.id}" type="date" value="${m.event_date ?? ''}" />
           </div>
+          <div class="field">
+            <label>GPX 파일 (코스 경로)</label>
+            <input class="input" id="gpx_file_${m.id}" type="file" accept=".gpx" />
+          </div>
         </div>
 
         <div class="field" style="margin-top:8px;">
           <label>URL 템플릿</label>
-          <input class="input mono" id="url_${m.id}" value="${escapeHtml(m.url_template)}" />
+          ${getUrlTemplateSelect(`url_${m.id}`, m.url_template)}
           <div class="small muted">예: https://smartchip.co.kr/return_data_livephoto.asp?nameorbibno={nameorbibno}&usedata={usedata}</div>
         </div>
 
@@ -168,6 +191,20 @@ function renderList(){
     wrap.appendChild(card);
     loadGroupsForMarathon(m.id);
   }
+}
+
+function getUrlTemplateSelect(id, selectedValue) {
+  let options = '';
+  for (const name in URL_TEMPLATES) {
+    const value = URL_TEMPLATES[name];
+    const selected = (value === selectedValue) ? 'selected' : '';
+    options += `<option value="${escapeHtml(value)}" ${selected}>${name}</option>`;
+  }
+  // Add an option for the current value if it's not in the standard list
+  if (!Object.values(URL_TEMPLATES).includes(selectedValue)) {
+      options += `<option value="${escapeHtml(selectedValue)}" selected>Custom</option>`;
+  }
+  return `<select class="input mono" id="${id}">${options}</select>`;
 }
 
 async function loadGroupsForMarathon(marathonId) {
@@ -242,17 +279,29 @@ async function saveMarathon(mid){
   const url = val(`url_${mid}`);
   const enabled = Number(val(`enabled_${mid}`)||'1');
   const event_date = val(`event_date_${mid}`) || null;
+  const gpx_file_input = $(`gpx_file_${mid}`);
+  const gpx_file = gpx_file_input.files[0];
 
   if(!name){ toast('대회명 필수'); return; }
   if(!url || !checkTemplate(url)){ toast('URL 템플릿에 {nameorbibno}, {usedata} 포함해야 합니다'); return; }
 
+  const formData = new FormData();
+  formData.append('name', name);
+  formData.append('total_distance_km', total);
+  formData.append('refresh_sec', refresh);
+  if (usedata) formData.append('usedata', usedata);
+  formData.append('url_template', url);
+  formData.append('enabled', enabled);
+  if (event_date) formData.append('event_date', event_date);
+  if (gpx_file) {
+    formData.append('gpx_file', gpx_file);
+  }
+
   const r = await fetch(`/api/marathons/${mid}`, {
-    method:'PUT', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({
-      name, url_template:url, usedata,
-      total_distance_km: total, refresh_sec: refresh, enabled, event_date
-    })
+    method:'PUT',
+    body: formData
   });
+
   if(r.ok){ await loadAll(); toast('저장 완료'); }
   else{ const t = await r.text().catch(()=> '오류'); toast('저장 실패\n'+t); }
 }
@@ -298,7 +347,18 @@ async function delParticipant(pid, groupId){
   await reloadParticipants(groupId);
 }
 
+function populateNewUrlSelect() {
+  const select = $('new_url');
+  if (!select) return;
+  select.innerHTML = '';
+  for (const name in URL_TEMPLATES) {
+    const value = URL_TEMPLATES[name];
+    select.innerHTML += `<option value="${escapeHtml(value)}">${name}</option>`;
+  }
+}
+
 loadAll();
+populateNewUrlSelect();
 
 $('upload-form').addEventListener('submit', async (e) => {
   e.preventDefault();

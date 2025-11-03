@@ -4,6 +4,9 @@ let allMarathons = [];
 let allGroups = [];
 let currentGroup = null;
 let participants = [];
+let map = null;
+let splitPoints = {};
+let runnerMarkers = {};
 
 const $ = (id) => document.getElementById(id);
 
@@ -84,6 +87,7 @@ async function loadParticipants(groupId) {
     participants = await api(`/api/participants?group_id=${groupId}`);
     await fetchAllParticipantData();
     renderParticipantList();
+    updateRunnerMarkers();
     setupAutoRefresh();
 }
 
@@ -130,9 +134,14 @@ async function showGroupView(groupCode) {
         
         $('raceTitle').textContent = `${currentGroup.name}`;
         $('raceMeta').textContent = `참여 코드: ${currentGroup.join_code}`;
+
+        const mapBtn = $('fullMapBtn');
+        mapBtn.href = `/race/${currentGroup.marathon_id}/map`;
+        mapBtn.style.display = 'inline-flex';
         
         document.querySelector('#viewRace .card').style.display = 'block';
 
+        await initMap(currentGroup.marathon_id);
         await loadParticipants(currentGroup.id);
 
     } catch (error) {
@@ -247,7 +256,6 @@ function renderGroupList() {
         div.innerHTML = `
             <h3>${g.name}</h3>
             <div class="small muted">마라톤: ${g.marathon_name}</div>
-            <div class="small muted">참여 코드: <code>${g.join_code}</code></div>
             <div style="margin-top:10px;">
                 <button class="btn" style="width:100%; justify-content:center" onclick="promptForGroupCode('${g.name}', '${g.join_code}')">그룹 기록 보기</button>
             </div>
@@ -429,6 +437,7 @@ async function manualRefresh() {
     if (!currentGroup) return;
     await fetchAllParticipantData();
     renderParticipantList();
+    updateRunnerMarkers();
 }
 
 function initTheme() {
@@ -508,4 +517,86 @@ function compareParticipantFast(a, b){
   if (ca !== cb) return ca - cb;
 
   return (a.alias||'').localeCompare(b.alias||'');
+}
+
+function renderSplitPointMarkers() {
+    if (!map) return;
+    for (const label in splitPoints) {
+        const coords = splitPoints[label];
+        // Leaflet uses [lat, lon] but our GeoJSON is [lon, lat]
+        L.marker([coords[1], coords[0]]).addTo(map)
+            .bindPopup(label)
+            .openPopup();
+    }
+}
+
+function updateRunnerMarkers() {
+    if (!map || !Object.keys(splitPoints).length) return;
+
+    participants.forEach(p => {
+        const last = p._last;
+        if (!last || !last.splits || !last.splits.length) return;
+
+        const lastSplit = last.splits[last.splits.length - 1];
+        const splitLabel = lastSplit.point_label;
+
+        if (splitPoints[splitLabel]) {
+            const coords = splitPoints[splitLabel];
+            const latLng = [coords[1], coords[0]]; // Leaflet is [lat, lon]
+            
+            if (runnerMarkers[p.id]) {
+                runnerMarkers[p.id].setLatLng(latLng);
+            } else {
+                runnerMarkers[p.id] = L.marker(latLng, { 
+                    icon: L.divIcon({
+                        className: 'runner-icon',
+                        html: `<div>${p.alias || p.nameorbibno}</div>`,
+                        iconSize: [60, 20]
+                    }) 
+                }).addTo(map);
+            }
+            runnerMarkers[p.id].bindPopup(`<b>${p.alias || p.nameorbibno}</b><br>${splitLabel}`);
+        }
+    });
+}
+
+async function initMap(marathonId) {
+    if (map) {
+        map.remove();
+        map = null;
+    }
+    // Clear old data
+    splitPoints = {};
+    Object.values(runnerMarkers).forEach(m => m.remove());
+    runnerMarkers = {};
+    
+    try {
+        const mapData = await api(`/api/marathons/${marathonId}/map_data`);
+        
+        if (mapData.course_geo_json) {
+            $('map').style.display = 'block';
+            const geoJsonFeature = mapData.course_geo_json;
+            
+            map = L.map('map');
+            
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+            }).addTo(map);
+            
+            const geoJsonLayer = L.geoJSON(geoJsonFeature).addTo(map);
+            map.fitBounds(geoJsonLayer.getBounds());
+
+            if (geoJsonFeature.properties && geoJsonFeature.properties.split_points) {
+                splitPoints = geoJsonFeature.properties.split_points;
+                renderSplitPointMarkers();
+            }
+
+        } else {
+            // Hide map if no course data
+            $('map').style.display = 'none';
+        }
+    } catch (error) {
+        console.error("Failed to load map data", error);
+        $('map').style.display = 'none';
+    }
 }

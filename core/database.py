@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS marathons (
   cert_url_template TEXT,
   event_date TEXT,
   updated_at TEXT,
+  course_geo_json TEXT,
   -- 아래 4개 컬럼은 과거 DB에 없을 수 있음 (마이그레이션에서 보장)
   join_code TEXT UNIQUE,
   join_code_expires_at DATETIME,
@@ -106,6 +107,7 @@ def migrate_database():
             ("join_code_expires_at", "ALTER TABLE marathons ADD COLUMN join_code_expires_at DATETIME"),
             ("join_code_try_window_start", "ALTER TABLE marathons ADD COLUMN join_code_try_window_start DATETIME"),
             ("join_code_try_count", "ALTER TABLE marathons ADD COLUMN join_code_try_count INTEGER DEFAULT 0"),
+            ("course_geo_json", "ALTER TABLE marathons ADD COLUMN course_geo_json TEXT"),
         ]:
             try:
                 if not _column_exists(conn, "marathons", col):

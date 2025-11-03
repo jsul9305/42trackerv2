@@ -17,6 +17,17 @@ class ParticipantService:
             return [dict(row) for row in cur.fetchall()]
 
     @staticmethod
+    def list_participants_by_marathon(marathon_id: int) -> List[Dict]:
+        """특정 마라톤의 모든 참가자 목록을 반환합니다."""
+        with get_db() as conn:
+            rows = conn.execute("""
+                SELECT p.* FROM participants p
+                JOIN groups g ON p.group_id = g.id
+                WHERE g.marathon_id = ?
+            """, (marathon_id,)).fetchall()
+            return [dict(row) for row in rows]
+
+    @staticmethod
     def create_participant(group_id: int, nameorbibno: str, alias: str = None) -> Dict:
         """Creates a single participant in a group."""
         if not group_id or not nameorbibno:

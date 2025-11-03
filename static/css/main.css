@@ -200,3 +200,13 @@
 .splits-cell .split-clock {
     color: var(--muted);
 }
+
+.runner-icon {
+    background-color: white;
+    border: 1px solid #555;
+    border-radius: 5px;
+    padding: 2px 5px;
+    font-size: 12px;
+    text-align: center;
+    white-space: nowrap;
+}

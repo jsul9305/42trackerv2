@@ -29,6 +29,15 @@ def page_race_qs():
 def page_admin():
     return render_template("admin.html")
 
+
+@pages_bp.route("/race/<int:marathon_id>/map")
+def page_race_map(marathon_id: int):
+    """Renders the full-screen map for a given marathon."""
+    marathon = MarathonService.get_marathon(marathon_id)
+    if not marathon:
+        return redirect(url_for("pages.page_index"))
+    return render_template("map.html", marathon_id=marathon_id)
+
 @pages_bp.route("/records")
 def ui_records():
     q = request.args.get("q", "").strip()

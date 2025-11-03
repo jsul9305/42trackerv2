@@ -77,7 +77,8 @@ class MarathonService:
         refresh_sec: int = 60,
         enabled: bool = True,
         cert_url_template: Optional[str] = None,
-        event_date: Optional[str] = None
+        event_date: Optional[str] = None,
+        course_geo_json: Optional[str] = None
     ) -> Dict:
         if not name or not name.strip():
             return {'success': False, 'error': '대회명은 필수입니다'}
@@ -95,8 +96,9 @@ class MarathonService:
                     """INSERT INTO marathons(
                         name, url_template, usedata, 
                         total_distance_km, refresh_sec, enabled,
-                        cert_url_template, event_date, join_code, updated_at
-                    ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        cert_url_template, event_date, join_code, updated_at,
+                        course_geo_json
+                    ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         name.strip(),
                         url_template.strip(),
@@ -107,7 +109,8 @@ class MarathonService:
                         cert_url_template.strip() if cert_url_template else None,
                         event_date,
                         join_code,
-                        datetime.now().isoformat()
+                        datetime.now().isoformat(),
+                        course_geo_json
                     )
                 )
                 conn.commit()
@@ -159,7 +162,7 @@ class MarathonService:
         allowed_fields = {
             'name', 'url_template', 'usedata',
             'total_distance_km', 'refresh_sec', 'enabled',
-            'cert_url_template', 'event_date'
+            'cert_url_template', 'event_date', 'course_geo_json'
         }
         
         fields = []
