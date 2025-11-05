@@ -30,13 +30,17 @@ def page_admin():
     return render_template("admin.html")
 
 
-@pages_bp.route("/race/<int:marathon_id>/map")
-def page_race_map(marathon_id: int):
-    """Renders the full-screen map for a given marathon."""
-    marathon = MarathonService.get_marathon(marathon_id)
-    if not marathon:
+@pages_bp.route("/group/<string:group_code>/map")
+def page_group_map(group_code: str):
+    """Renders the full-screen map for a given group."""
+    result = validate_code(group_code)
+    if not result["valid"]:
         return redirect(url_for("pages.page_index"))
-    return render_template("map.html", marathon_id=marathon_id)
+    
+    group = result["group"]
+    marathon = MarathonService.get_marathon(group["marathon_id"])
+
+    return render_template("map.html", marathon=marathon, group=group)
 
 @pages_bp.route("/records")
 def ui_records():

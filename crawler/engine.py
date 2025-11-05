@@ -302,6 +302,19 @@ class CrawlerEngine:
             print(f"[err] fetch_cached failed pid={pid} url={url}: {e}")
             html = ""
         host = urllib.parse.urlsplit(url).hostname or ""
+
+        # For mock server, force the parser based on URL
+        if "localhost" in host or "127.0.0.1" in host:
+            if "/myresult/" in url:
+                host = "myresult.co.kr"
+                print(f"[DEBUG] Host overridden to {host} for URL {url}")
+            elif "/spct/" in url:
+                host = "spct.co.kr"
+                print(f"[DEBUG] Host overridden to {host} for URL {url}")
+            elif "/smartchip/" in url:
+                host = "smartchip.co.kr"
+                print(f"[DEBUG] Host overridden to {host} for URL {url}")
+
         # print(f"[dbg] fetched host={host} len={len(html) if isinstance(html, (str, bytes)) else 'n/a'} pid={pid}")
         
         # 파싱

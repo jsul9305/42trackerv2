@@ -95,7 +95,7 @@ class MyResultParser(BaseParser):
         """
         splits = []
         
-        for row in soup.select(".table-row.ant-row"):
+        for row in soup.select(".table-row"): # Simplified selector for robustness
             cols = row.select(".ant-col")
             if len(cols) < 4:
                 continue
@@ -103,21 +103,20 @@ class MyResultParser(BaseParser):
             # 컬럼 값 추출 및 정리
             label = self._clean_value(cols[0].get_text(" ", strip=True)) # 구간명
             clock = self._clean_value(cols[1].get_text(" ", strip=True)) # 통과시간
-            # 구간기록 (cols[2]) 대신 누적기록 (cols[3])을 net_time으로 사용
-            acc = self._clean_value(cols[3].get_text(" ", strip=True))   # 누적기록
+            interval = self._clean_value(cols[2].get_text(" ", strip=True))   # 구간기록
             
             # 시간 추출
             clock_time = first_time(clock)
-            acc_time = first_time(acc)
+            interval_time = first_time(interval)
             
             # 둘 다 없으면 스킵
-            if not (clock_time or acc_time):
+            if not (clock_time or interval_time):
                 continue
             
             splits.append({
                 "point_label": label,
                 "point_km": km_from_label(label),
-                "net_time": acc_time or "",      # 구간기록을 net_time으로 사용
+                "net_time": interval_time or "",      # 구간기록을 net_time으로 사용
                 "pass_clock": clock_time or "",  # 통과시간
                 "pace": "",
             })

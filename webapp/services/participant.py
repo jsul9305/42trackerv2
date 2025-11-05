@@ -2,7 +2,7 @@ from core.database import get_db
 from typing import List, Dict, Any
 
 from webapp.services.prediction import PredictionService
-from utils.time_utils import sec_from_mmss, hms_from_sec
+from utils.time_utils import sec_from_mmss, hms_from_sec, looks_time
 from utils.distance_utils import km_from_label
 
 class ParticipantService:
@@ -109,7 +109,7 @@ class ParticipantService:
         """Retrieves detailed data for a single participant, including marathon info."""
         with get_db() as conn:
             cur = conn.execute("""
-                SELECT p.*, m.url_template, m.usedata, m.name as marathon_name, m.total_distance_km
+                SELECT p.*, m.url_template, m.usedata, m.name as marathon_name, m.total_distance_km, m.course_geo_json
                 FROM participants p
                 JOIN groups g ON p.group_id = g.id
                 JOIN marathons m ON g.marathon_id = m.id
@@ -154,8 +154,10 @@ class ParticipantService:
                 if interval_km > 0 and interval_sec is not None and interval_sec > 0:
                     pace_sec_per_km = interval_sec / interval_km
                     new_split['pace'] = hms_from_sec(pace_sec_per_km, show_hour=False)
+                    new_split['pace_spk'] = pace_sec_per_km # Pass raw seconds to prediction service
                 else:
                     new_split['pace'] = None
+                    new_split['pace_spk'] = None
 
                 processed_splits.append(new_split)
                 
@@ -167,8 +169,16 @@ class ParticipantService:
 
             # Add prediction data
             total_km = participant_dict.get('race_total_km') or participant_dict.get('total_distance_km')
+            course_geo_json = participant_dict.get('course_geo_json')
             if total_km:
-                prediction = PredictionService.calculate_prediction(processed_splits, float(total_km))
+                prediction = PredictionService.predict_current_state(
+                    processed_splits, 
+                    float(total_km),
+                    course_geo_json
+                )
                 participant_dict["prediction"] = prediction
+
+            # Add processed splits to the output for debugging
+            participant_dict["debug_processed_splits"] = processed_splits
 
             return participant_dict

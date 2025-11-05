@@ -34,7 +34,12 @@ def create_group(marathon_id: int, name: str) -> dict:
 def validate_code(join_code: str) -> dict:
     """Finds a group by its join code and returns its details if valid."""
     with get_db() as conn:
-        cur = conn.execute("SELECT * FROM groups WHERE join_code = ?", (join_code,))
+        cur = conn.execute("""
+            SELECT g.*, m.name as marathon_name
+            FROM groups g
+            JOIN marathons m ON g.marathon_id = m.id
+            WHERE g.join_code = ?
+        """, (join_code,))
         row = cur.fetchone()
         if row:
             return {"valid": True, "group": dict(row)}

@@ -3,7 +3,8 @@ let marathons = [];
 const URL_TEMPLATES = {
   "Smartchip": "https://smartchip.co.kr/return_data_livephoto.asp?nameorbibno={nameorbibno}&usedata={usedata}",
   "SPCT": "http://time.spct.co.kr/m2.php?{usedata}&BIB_NO={nameorbibno}",
-  "MyResult": "https://myresult.co.kr/{usedata}/{nameorbibno}"
+  "MyResult": "https://myresult.co.kr/{usedata}/{nameorbibno}",
+  "TEST_MR": "http://localhost:5002/{usedata}/{nameorbibno}"
 };
 
 function $(id){ return document.getElementById(id); }

@@ -17,6 +17,7 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 async function init() {
+    console.log(`Initializing with groupCode: '${window.INIT_GROUP_CODE}' and marathonId: '${window.INIT_MARATHON_ID}'`);
     await loadMarathons(); // Still need this for the <select> dropdown in the create form
 
     const groupCode = window.INIT_GROUP_CODE || null;
@@ -37,11 +38,6 @@ function bindEventListeners() {
 
     $('codeForm').addEventListener('submit', submitJoinCode);
     $('groupCreateForm').addEventListener('submit', submitCreateGroup);
-    
-    const addParticipantBtn = document.querySelector('#viewRace .btn.primary');
-    if(addParticipantBtn && addParticipantBtn.textContent.includes('+ 추가')) {
-        addParticipantBtn.addEventListener('click', addParticipant);
-    }
 
     document.querySelectorAll('.segbtn').forEach(b => {
         b.addEventListener('click', () => {
@@ -112,11 +108,15 @@ function showView(viewId) {
 
 async function showGroupListView() {
     showView('viewList');
+    $('groupCreateForm').parentElement.style.display = 'block';
+    $('codeForm').parentElement.style.display = 'block';
     await loadAllGroups();
 }
 
 async function showGroupView(groupCode) {
     showView('viewRace');
+    $('groupCreateForm').parentElement.style.display = 'none';
+    $('codeForm').parentElement.style.display = 'none';
     try {
         const result = await api('/api/groups/validate', {
             method: 'POST',
@@ -132,16 +132,21 @@ async function showGroupView(groupCode) {
         
         currentGroup = result.group;
         
-        $('raceTitle').textContent = `${currentGroup.name}`;
+        $('raceTitle').textContent = `${currentGroup.marathon_name} @ ${currentGroup.name}`;
+        document.title = `${currentGroup.marathon_name} @ ${currentGroup.name}`;
         $('raceMeta').textContent = `참여 코드: ${currentGroup.join_code}`;
 
         const mapBtn = $('fullMapBtn');
-        mapBtn.href = `/race/${currentGroup.marathon_id}/map`;
+        mapBtn.href = `/group/${currentGroup.join_code}/map`;
         mapBtn.style.display = 'inline-flex';
         
-        document.querySelector('#viewRace .card').style.display = 'block';
+        // document.querySelector('#viewRace .card').style.display = 'none'; // This was hiding the "Add Participant" form.
+        
+        // Per user request, map is not needed on this page.
+        // await initMap(currentGroup.marathon_id);
+        $('map').style.display = 'none';
 
-        await initMap(currentGroup.marathon_id);
+
         await loadParticipants(currentGroup.id);
 
     } catch (error) {
@@ -206,33 +211,7 @@ async function submitCreateGroup(event) {
     }
 }
 
-async function addParticipant() {
-    if (!currentGroup) {
-        alert('먼저 그룹을 선택하세요.');
-        return;
-    }
-    const aliasInput = $('alias');
-    const bibInput = $('nameorbib');
-    const alias = aliasInput.value.trim();
-    const nameorbibno = bibInput.value.trim();
 
-    if (!nameorbibno) {
-        alert('배번은 필수 항목입니다.');
-        return;
-    }
-
-    try {
-        await api('/api/participants', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ group_id: currentGroup.id, alias, nameorbibno })
-        });
-        bibInput.value = '';
-        aliasInput.value = '';
-        await loadParticipants(currentGroup.id);
-    } catch (error) {
-    }
-}
 
 async function deleteParticipant(participantId) {
     if (!confirm('정말로 이 참가자를 삭제하시겠습니까?')) return;
@@ -253,30 +232,28 @@ function renderGroupList() {
     allGroups.forEach(g => {
         const div = document.createElement('div');
         div.className = 'card';
+        div.style.cursor = 'pointer';
         div.innerHTML = `
-            <h3>${g.name}</h3>
-            <div class="small muted">마라톤: ${g.marathon_name}</div>
-            <div style="margin-top:10px;">
-                <button class="btn" style="width:100%; justify-content:center" onclick="promptForGroupCode('${g.name}', '${g.join_code}')">그룹 기록 보기</button>
-            </div>
+            <h3>${g.marathon_name} @ ${g.name}</h3>
+            <div class="small muted">참여 코드: ${g.join_code}</div>
         `;
+        div.addEventListener('click', () => {
+            const enteredCode = prompt(`'${g.name}' 그룹에 참여하려면 참여 코드를 입력하세요.`);
+            if (enteredCode === null) { // User cancelled the prompt
+                return;
+            }
+            
+            if (enteredCode.trim().toUpperCase() === g.join_code.toUpperCase()) {
+                window.location.href = `/group/${g.join_code}`;
+            } else {
+                alert('참여 코드가 일치하지 않습니다.');
+            }
+        });
         grid.appendChild(div);
     });
 }
 
-function promptForGroupCode(groupName, correctCode) {
-    const inputCode = prompt(`'${groupName}' 그룹의 참여 코드를 입력하세요:`);
-    
-    if (inputCode === null) { // User clicked cancel
-        return;
-    }
 
-    if (inputCode.trim().toUpperCase() === correctCode.toUpperCase()) {
-        window.location.href = `/group/${correctCode}`;
-    } else {
-        alert('참여 코드가 올바르지 않습니다.');
-    }
-}
 
 function fillMarathonSelect() {
     const select = $('groupMarathonSelect');
@@ -407,6 +384,7 @@ function renderParticipantList() {
                 <span class="c clock num">${clk}</span>
                 <span class="c net num">${net}</span>
                 <span class="actions">
+                    ${last.url ? `<a href="${last.url}" target="_blank" class="btn inline">원문</a>` : ''}
                     <button class="btn inline" onclick="deleteParticipant(${it.id})">삭제</button>
                 </span>
             `;

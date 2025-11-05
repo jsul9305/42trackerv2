@@ -95,5 +95,83 @@
     <button class="btn" onclick="manualRefresh()">새로고침</button>
   </div>
   <script src="{{ url_for('static_routes.static', filename='js/main.js') }}"></script>
+  <script>
+  function copyShare() {
+    navigator.clipboard.writeText(window.location.href).then(() => {
+      alert('현재 페이지 주소가 복사되었습니다.');
+    }, () => {
+      alert('주소 복사에 실패했습니다.');
+    });
+  }
+
+  async function addP() {
+    const alias = document.getElementById('alias').value.trim();
+    const nameorbib = document.getElementById('nameorbib').value.trim();
+    if (!nameorbib) {
+      alert('배번 또는 이름을 입력하세요.');
+      return;
+    }
+    if (!currentGroup) {
+      alert('현재 그룹이 선택되지 않았습니다.');
+      return;
+    }
+    try {
+      const result = await api('/api/participants', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          group_id: currentGroup.id,
+          nameorbibno: nameorbib,
+          alias: alias || nameorbib
+        })
+      });
+      if (result.success) {
+        document.getElementById('alias').value = '';
+        document.getElementById('nameorbib').value = '';
+        location.reload();
+      }
+    } catch (e) {
+      // api() handles alert
+    }
+  }
+
+  async function downloadCSV() {
+    if (!currentGroup || !participants || !participants.length) {
+      alert('다운로드할 데이터가 없습니다.');
+      return;
+    }
+    let csvContent = "data:text/csv;charset=utf-8,";
+    csvContent += "성명,배번,종목,마지막지점,기록,통과시각,상태,피니시예측\n";
+
+    participants.forEach(p => {
+      const last = p._last || {};
+      const pred = getPred(last) || {};
+      const s = lastSplit(last) || {};
+      const statusTxt = pred.finished ? '완주' : (last.splits && last.splits.length ? '주행중' : '대기');
+      
+      const row = [
+        p.alias || p.nameorbibno,
+        p.nameorbibno,
+        last.race_label || p.race_label || '',
+        s.point_label || '',
+        s.net_time || '',
+        s.pass_clock || '',
+        statusTxt,
+        pred.finish_net_pred || ''
+      ].map(field => `"${String(field).replace(/"/g, '""')}"`).join(',');
+      csvContent += row + "\n";
+    });
+
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    const fileName = `${currentGroup.marathon_name}_${currentGroup.name}_${new Date().toISOString().slice(0,10)}.csv`;
+    link.setAttribute("download", fileName);
+    document.body.appendChild(link);
+
+    link.click();
+    document.body.removeChild(link);
+  }
+</script>
 </body>
 </html>

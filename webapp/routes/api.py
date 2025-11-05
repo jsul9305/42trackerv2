@@ -31,13 +31,9 @@ def _process_gpx_file(gpx_file, total_distance_km):
                     points.append((point.longitude, point.latitude))
         
         split_points = {}
-        # First, try to get split points from waypoints
-        for waypoint in gpx.waypoints:
-            if waypoint.name:
-                split_points[waypoint.name] = (waypoint.longitude, waypoint.latitude)
 
-        # If no waypoints, calculate splits by distance
-        if not split_points and points:
+        # 1. Always calculate splits by distance first
+        if points:
             track_points = []
             for track in gpx.tracks:
                 for segment in track.segments:
@@ -74,6 +70,11 @@ def _process_gpx_file(gpx_file, total_distance_km):
                 # Always add the finish point as the last point of the track
                 last_point = track_points[-1]
                 split_points["Finish"] = (last_point.longitude, last_point.latitude)
+
+        # 2. Then, get split points from waypoints, allowing them to override calculated splits
+        for waypoint in gpx.waypoints:
+            if waypoint.name:
+                split_points[waypoint.name] = (waypoint.longitude, waypoint.latitude)
         
         if points:
             line = geojson.LineString(points)
