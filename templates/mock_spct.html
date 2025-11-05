@@ -1,0 +1,23 @@
+<html>
+<head>
+    <title>SPCT Mock</title>
+    <meta http-equiv="refresh" content="5">
+</head>
+<body>
+    <div id="bib">{{ runner_info.bib }}</div>
+    <div id="name">{{ runner_info.name }}</div>
+    <table id="result_list">
+        <tbody>
+            {% for split in splits %}
+            <tr>
+                <td>{{ split.point }}</td>
+                <td>{{ split.pass_clock }}</td>
+                <td>{{ split.net_time }}</td>
+                <td>{{ split.pace }}</td>
+                <td>{{ split.interval }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</body>
+</html>

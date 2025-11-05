@@ -25,6 +25,10 @@ KM_RX = re.compile(r'(\d+(?:\.\d+)?)\s*(?:k|km)\b', re.I)
 FINISH_KEYWORDS_KO = ("도착", "완주", "골인", "결승", "피니시")
 FINISH_KEYWORDS_EN = ("finish", "goal", "completed", "end")
 
+# 시작 키워드
+START_KEYWORDS_KO = ("시작",)
+START_KEYWORDS_EN = ("start", "0k", "0km")
+
 # HTTP 헤더
 DEFAULT_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",

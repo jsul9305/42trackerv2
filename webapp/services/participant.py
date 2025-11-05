@@ -143,14 +143,19 @@ class ParticipantService:
 
             for split in raw_splits:
                 new_split = split.copy()
+
+                # 1. point_km이 null이면 point_label로 거리(km) 추정 (요청 3번)
                 current_km = new_split.get('point_km') or km_from_label(new_split.get('point_label')) or 0.0
+                # net_time을 초(sec)로 변환
                 current_sec = sec_from_mmss(new_split.get('net_time'))
 
+                # 2. interval(구간 거리) 및 interval_sec(구간 시간) 계산
                 interval_km = float(current_km) - last_km
                 interval_sec = current_sec - last_sec if current_sec is not None else None
 
                 new_split['interval'] = hms_from_sec(interval_sec) if interval_sec is not None else None
 
+                # 3. 구간 페이스(pace, pace_spk) 계산 (요청 4번)
                 if interval_km > 0 and interval_sec is not None and interval_sec > 0:
                     pace_sec_per_km = interval_sec / interval_km
                     new_split['pace'] = hms_from_sec(pace_sec_per_km, show_hour=False)

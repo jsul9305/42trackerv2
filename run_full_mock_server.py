@@ -1,6 +1,6 @@
 import time
 from datetime import datetime, timedelta
-from flask import Flask, Response, request, redirect, url_for
+from flask import Flask, Response, request, redirect, url_for, jsonify, render_template
 import copy
 
 # --- 1. Flask App Setup ---
@@ -16,34 +16,64 @@ FULL_RACE_DATA = {
         "name": "김결과",
         "bib": "101",
         "splits": [
-            # (point, net_time, pace, interval)
-            ("5K", "00:25:10", "05:02", "00:25:10"),
-            ("10K", "00:50:30", "05:04", "00:25:20"),
-            ("20K", "01:41:00", "05:03", "00:50:30"),
-            ("Finish", "03:35:00", "05:05", "01:54:00"),
+            ("Start", "00:00:00", "00:00:00"),
+            ("5K", "00:25:10", "00:25:10"),
+            ("10K", "00:50:30", "00:25:20"),
+            ("15K", "01:16:00", "00:25:30"),
+            ("20K", "01:41:00", "00:25:00"),
+            ("25K", "02:06:30", "00:25:30"),
+            ("30K", "02:32:00", "00:25:30"),
+            ("35K", "02:58:00", "00:26:00"),
+            ("40K", "03:24:00", "00:26:00"),
+            ("Finish", "03:35:00", "00:11:00"),
         ]
     },
     ("spct", "202"): {
         "name": "박분석",
         "bib": "202",
         "splits": [
+            ("Start", "00:00:00", "0:00", "00:00:00"),
             ("5K", "00:30:00", "6:00", "00:30:00"),
             ("10K", "01:00:00", "6:00", "00:30:00"),
-            ("Half", "02:15:00", "6:24", "01:15:00"),
-            ("30K", "03:05:00", "6:40", "00:50:00"),
-            ("Finish", "04:20:00", "6:10", "01:15:00"),
+            ("15K", "01:30:00", "6:00", "00:30:00"),
+            ("20K", "02:00:00", "6:00", "00:30:00"),
+            ("25K", "02:35:00", "7:00", "00:35:00"),
+            ("30K", "03:10:00", "7:00", "00:35:00"),
+            ("35K", "03:45:00", "7:00", "00:35:00"),
+            ("40K", "04:20:00", "7:00", "00:35:00"),
+            ("Finish", "04:35:00", "7:30", "00:15:00"),
         ]
     },
     ("smartchip", "303"): {
         "name": "이칩",
         "bib": "303",
         "splits": [
-            # (point, net_time, pace) - no interval for smartchip
+            ("Start", "00:00:00", "0:00"),
             ("5K", "00:28:00", "5:36"),
             ("10K", "00:58:00", "6:00"),
-            ("20K", "02:00:00", "6:10"),
-            ("30K", "03:05:00", "6:30"),
-            ("Finish", "04:15:00", "6:20"),
+            ("15K", "01:28:00", "6:00"),
+            ("20K", "02:00:00", "6:24"),
+            ("25K", "02:32:00", "6:24"),
+            ("30K", "03:05:00", "6:36"),
+            ("35K", "03:40:00", "7:00"),
+            ("40K", "04:15:00", "7:00"),
+            ("Finish", "04:30:00", "7:30"),
+        ]
+    },
+    ("myresult", "1157"): {
+        "name": "기용은",
+        "bib": "1157",
+        "splits": [
+            ("Start", "00:00:00", "00:00:00"),
+            ("5K", "00:21:22", "00:21:22"),
+            ("10K", "00:42:21", "00:20:59"),
+            ("15K", "01:03:40", "00:21:19"),
+            ("20K", "01:24:40", "00:21:00"),
+            ("25K", "01:45:48", "00:21:08"),
+            ("30K", "02:07:57", "00:22:09"),
+            ("35K", "02:37:04", "00:29:07"),
+            ("40K", "03:09:51", "00:32:47"),
+            ("Finish", "03:24:08", "00:14:17"),
         ]
     },
 }
@@ -61,7 +91,8 @@ def reset_all_runners():
             "bib": data["bib"],
             "site_type": key[0],
             "visible_splits": 0,
-            "total_splits": len(data["splits"])
+            "total_splits": len(data["splits"]),
+            "split_pass_times": {}
         }
 
 def get_current_splits_for_runner(site_type, bib):
@@ -82,32 +113,36 @@ def render_myresult_html(bib):
     if not runner_info:
         return "Runner not found", 404
         
-    current_splits = get_current_splits_for_runner("myresult", bib)
+    state = ACTIVE_RUNNERS_STATE.get(runner_key)
+    if not state:
+        return "Runner state not found", 404
+
+    all_splits_data = runner_info["splits"]
+    visible_splits_count = state["visible_splits"]
+    pass_times = state.get("split_pass_times", {})
     
-    rows_html = ""
-    base_time = datetime.now()
-    for i, split in enumerate(current_splits):
-        point, net_time, pace, interval = split
-        # The parser expects: point, clock, interval, net_time.
-        # We generate a fake clock time as the parser needs it.
-        pass_clock = (base_time + timedelta(minutes=i*30)).strftime('%H:%M:%S')
+    splits_for_template = []
+    for i, split_data in enumerate(all_splits_data):
+        point, net_time, interval = split_data
+        
+        if i < visible_splits_count:
+            pass_time_obj = pass_times.get(i)
+            pass_clock = pass_time_obj.strftime('%H:%M:%S') if pass_time_obj else "N/A"
+            splits_for_template.append({
+                "point": point,
+                "pass_clock": pass_clock,
+                "interval": interval,
+                "net_time": net_time
+            })
+        else:
+            splits_for_template.append({
+                "point": point,
+                "pass_clock": "-",
+                "interval": "-",
+                "net_time": "-"
+            })
 
-        rows_html += f"""
-        <div class="table-row ant-row">
-          <div class="ant-col">{point}</div>
-          <div class="ant-col">{pass_clock}</div>
-          <div class="ant-col">{interval}</div>
-          <div class="ant-col">{net_time}</div>
-        </div>
-        """
-
-    return f"""
-    <html><head><title>MyResult Mock</title><meta http-equiv="refresh" content="5"></head><body>
-        <div class="td-name">{runner_info['name']}</div>
-        <div class="td-num">{runner_info['bib']}</div>
-        {rows_html}
-    </body></html>
-    """
+    return render_template("mock_myresult.html", runner_info=runner_info, splits=splits_for_template)
 
 def render_spct_html(bib):
     runner_key = ("spct", bib)
@@ -115,32 +150,28 @@ def render_spct_html(bib):
     if not runner_info:
         return "Runner not found", 404
         
-    current_splits = get_current_splits_for_runner("spct", bib)
-    
-    rows_html = ""
-    base_time = datetime.now()
-    for i, split in enumerate(current_splits):
-        point, net_time, pace, interval = split
-        pass_clock = (base_time + timedelta(minutes=i*30)).strftime('%H:%M:%S')
-        rows_html += f"""
-        <tr>
-            <td>{point}</td>
-            <td>{pass_clock}</td>
-            <td>{net_time}</td>
-            <td>{pace}</td>
-            <td>{interval}</td>
-        </tr>
-        """
+    state = ACTIVE_RUNNERS_STATE.get(runner_key)
+    if not state:
+        return "Runner state not found", 404
 
-    return f"""
-    <html><head><title>SPCT Mock</title><meta http-equiv="refresh" content="5"></head><body>
-        <div id="bib">{runner_info['bib']}</div>
-        <div id="name">{runner_info['name']}</div>
-        <table id="result_list">
-            <tbody>{rows_html}</tbody>
-        </table>
-    </body></html>
-    """
+    visible_splits_count = state["visible_splits"]
+    pass_times = state.get("split_pass_times", {})
+    
+    visible_splits_data = runner_info["splits"][:visible_splits_count]
+    splits_for_template = []
+    for i, split_data in enumerate(visible_splits_data):
+        point, net_time, pace, interval = split_data
+        pass_time_obj = pass_times.get(i)
+        pass_clock = pass_time_obj.strftime('%H:%M:%S') if pass_time_obj else "N/A"
+        splits_for_template.append({
+            "point": point,
+            "pass_clock": pass_clock,
+            "net_time": net_time,
+            "pace": pace,
+            "interval": interval
+        })
+
+    return render_template("mock_spct.html", runner_info=runner_info, splits=splits_for_template)
 
 def render_smartchip_html(bib):
     runner_key = ("smartchip", bib)
@@ -148,33 +179,27 @@ def render_smartchip_html(bib):
     if not runner_info:
         return "Runner not found", 404
         
-    current_splits = get_current_splits_for_runner("smartchip", bib)
-    
-    rows_html = ""
-    base_time = datetime.now()
-    for i, split in enumerate(current_splits):
-        point, net_time, pace = split
-        pass_clock = (base_time + timedelta(minutes=i*30)).strftime('%H:%M:%S')
-        rows_html += f"""
-        <tr>
-            <td>{point}</td>
-            <td>{pass_clock}</td>
-            <td>{net_time}</td>
-            <td>{pace}</td>
-        </tr>
-        """
+    state = ACTIVE_RUNNERS_STATE.get(runner_key)
+    if not state:
+        return "Runner state not found", 404
 
-    return f"""
-    <html><head><title>SmartChip Mock</title><meta http-equiv="refresh" content="5"></head><body>
-        <table>
-            <tr><td class="result_bib">{runner_info['bib']}</td></tr>
-            <tr><td class="result_name">{runner_info['name']}</td></tr>
-        </table>
-        <table class="result_table">
-            <tbody>{rows_html}</tbody>
-        </table>
-    </body></html>
-    """
+    visible_splits_count = state["visible_splits"]
+    pass_times = state.get("split_pass_times", {})
+    
+    visible_splits_data = runner_info["splits"][:visible_splits_count]
+    splits_for_template = []
+    for i, split_data in enumerate(visible_splits_data):
+        point, net_time, pace = split_data
+        pass_time_obj = pass_times.get(i)
+        pass_clock = pass_time_obj.strftime('%H:%M:%S') if pass_time_obj else "N/A"
+        splits_for_template.append({
+            "point": point,
+            "pass_clock": pass_clock,
+            "net_time": net_time,
+            "pace": pace
+        })
+
+    return render_template("mock_smartchip.html", runner_info=runner_info, splits=splits_for_template)
 
 # --- 4. New Interactive Routes ---
 
@@ -296,8 +321,24 @@ def add_split(site_type, bib):
     """Increments the visible split count for a runner."""
     runner_key = (site_type, bib)
     if runner_key in ACTIVE_RUNNERS_STATE:
-        if ACTIVE_RUNNERS_STATE[runner_key]['visible_splits'] < ACTIVE_RUNNERS_STATE[runner_key]['total_splits']:
-            ACTIVE_RUNNERS_STATE[runner_key]['visible_splits'] += 1
+        state = ACTIVE_RUNNERS_STATE[runner_key]
+        if state['visible_splits'] < state['total_splits']:
+            # Record pass time for the new split before incrementing
+            # The index of the new split is the current number of visible splits
+            new_split_index = state['visible_splits']
+            if new_split_index not in state['split_pass_times']:
+                state['split_pass_times'][new_split_index] = datetime.now()
+            
+            state['visible_splits'] += 1
+    return redirect(url_for('runner_control_page', site_type=site_type, bib=bib))
+
+@app.route("/remove_split/<site_type>/<bib>", methods=['POST'])
+def remove_split(site_type, bib):
+    """Decrements the visible split count for a runner."""
+    runner_key = (site_type, bib)
+    if runner_key in ACTIVE_RUNNERS_STATE:
+        if ACTIVE_RUNNERS_STATE[runner_key]['visible_splits'] > 0:
+            ACTIVE_RUNNERS_STATE[runner_key]['visible_splits'] -= 1
     return redirect(url_for('runner_control_page', site_type=site_type, bib=bib))
 
 @app.route("/reset_runner/<site_type>/<bib>", methods=['POST'])
@@ -306,6 +347,7 @@ def reset_runner(site_type, bib):
     runner_key = (site_type, bib)
     if runner_key in ACTIVE_RUNNERS_STATE:
         ACTIVE_RUNNERS_STATE[runner_key]['visible_splits'] = 0
+        ACTIVE_RUNNERS_STATE[runner_key]['split_pass_times'] = {}
     return redirect(url_for('admin_index'))
 
 @app.route("/reset_all", methods=['POST'])
@@ -323,16 +365,44 @@ def add_runner():
 
     if runner_key not in FULL_RACE_DATA:
         # Create some generic data for the new runner
-        generic_splits = [
-            ("5K", "00:30:00", "06:00", "00:30:00"),
-            ("10K", "01:05:00", "06:30", "00:35:00"),
-            ("Finish", "02:15:00", "07:00", "01:10:00"),
-        ]
-        if site_type == 'smartchip':
+        if site_type == 'myresult':
+            generic_splits = [
+                ("Start", "00:00:00", "00:00:00"),
+                ("5K", "00:30:00", "00:30:00"),
+                ("10K", "01:00:00", "00:30:00"),
+                ("15K", "01:30:00", "00:30:00"),
+                ("20K", "02:00:00", "00:30:00"),
+                ("25K", "02:30:00", "00:30:00"),
+                ("30K", "03:00:00", "00:30:00"),
+                ("35K", "03:30:00", "00:30:00"),
+                ("40K", "04:00:00", "00:30:00"),
+                ("Finish", "04:15:00", "00:15:00"),
+            ]
+        elif site_type == 'smartchip':
              generic_splits = [
+                ("Start", "00:00:00", "0:00"),
                 ("5K", "00:30:00", "6:00"),
-                ("10K", "01:05:00", "6:30"),
-                ("Finish", "02:15:00", "7:00"),
+                ("10K", "01:00:00", "6:00"),
+                ("15K", "01:30:00", "6:00"),
+                ("20K", "02:00:00", "6:00"),
+                ("25K", "02:30:00", "6:00"),
+                ("30K", "03:00:00", "6:00"),
+                ("35K", "03:30:00", "6:00"),
+                ("40K", "04:00:00", "6:00"),
+                ("Finish", "04:15:00", "7:30"),
+            ]
+        else: # spct
+            generic_splits = [
+                ("Start", "00:00:00", "0:00", "00:00:00"),
+                ("5K", "00:30:00", "6:00", "00:30:00"),
+                ("10K", "01:00:00", "6:00", "00:30:00"),
+                ("15K", "01:30:00", "6:00", "00:30:00"),
+                ("20K", "02:00:00", "6:00", "00:30:00"),
+                ("25K", "02:30:00", "6:00", "00:30:00"),
+                ("30K", "03:00:00", "6:00", "00:30:00"),
+                ("35K", "03:30:00", "6:00", "00:30:00"),
+                ("40K", "04:00:00", "6:00", "00:30:00"),
+                ("Finish", "04:15:00", "7:30", "00:15:00"),
             ]
 
         FULL_RACE_DATA[runner_key] = {
@@ -345,9 +415,44 @@ def add_runner():
             "bib": bib,
             "site_type": site_type,
             "visible_splits": 0,
-            "total_splits": len(generic_splits)
+            "total_splits": len(generic_splits),
+            "split_pass_times": {}
         }
     return redirect(url_for('admin_index'))
+
+
+@app.route("/api/runner/<site_type>/<bib>")
+def api_runner_data(site_type, bib):
+    runner_key = (site_type, bib)
+    runner_info = FULL_RACE_DATA.get(runner_key)
+    if not runner_info:
+        return jsonify({"error": "Runner not found"}), 404
+
+    state = ACTIVE_RUNNERS_STATE.get(runner_key)
+    if not state:
+        return jsonify({"error": "Runner state not found"}), 404
+
+    # Get all splits, not just visible ones, to have a full list on the frontend
+    all_splits = runner_info["splits"]
+    
+    # Add current time as 'pass_time' to all splits
+    now = datetime.now()
+    splits_with_passtime = []
+    for i, split in enumerate(all_splits):
+        point, net_time, interval = split
+        # Simulate increasing pass time for mockup. Each split is 5 minutes after the previous.
+        pass_time = (now + timedelta(minutes=i*5)).strftime('%H:%M:%S')
+        splits_with_passtime.append((point, pass_time, interval, net_time))
+
+    data = {
+        "name": runner_info["name"],
+        "bib": runner_info["bib"],
+        "site_type": site_type,
+        "visible_splits": state["visible_splits"],
+        "total_splits": state["total_splits"],
+        "splits": splits_with_passtime
+    }
+    return jsonify(data)
 
 
 # --- 5. Original Mock Routes (Modified) ---
@@ -355,20 +460,17 @@ def add_runner():
 @app.route("/myresult/<path:subpath>")
 def mock_myresult(subpath):
     bib = subpath.split('/')[-1]
-    html = render_myresult_html(bib)
-    return Response(html, mimetype='text/html')
+    return render_myresult_html(bib)
 
 @app.route("/spct/<path:subpath>")
 def mock_spct(subpath):
     bib = subpath.split('/')[-1]
-    html = render_spct_html(bib)
-    return Response(html, mimetype='text/html')
+    return render_spct_html(bib)
 
 @app.route("/smartchip/<path:subpath>")
 def mock_smartchip(subpath):
     bib = subpath.split('/')[-1]
-    html = render_smartchip_html(bib)
-    return Response(html, mimetype='text/html')
+    return render_smartchip_html(bib)
 
 if __name__ == "__main__":
     reset_all_runners() # Initialize the state when the server starts

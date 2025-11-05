@@ -6,6 +6,7 @@ import gpxpy
 import gpxpy.gpx
 import geojson
 import json
+from utils.distance_utils import densify_gpx_track
 
 from webapp.services.marathon import MarathonService
 from webapp.services.participant import ParticipantService
@@ -77,7 +78,8 @@ def _process_gpx_file(gpx_file, total_distance_km):
                 split_points[waypoint.name] = (waypoint.longitude, waypoint.latitude)
         
         if points:
-            line = geojson.LineString(points)
+            densified_points = densify_gpx_track(points, step_m=10.0)
+            line = geojson.LineString(densified_points)
             properties = {"split_points": split_points}
             return json.dumps(geojson.Feature(geometry=line, properties=properties))
 

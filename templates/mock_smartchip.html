@@ -1,0 +1,24 @@
+<html>
+<head>
+    <title>SmartChip Mock</title>
+    <meta http-equiv="refresh" content="5">
+</head>
+<body>
+    <table>
+        <tr><td class="result_bib">{{ runner_info.bib }}</td></tr>
+        <tr><td class="result_name">{{ runner_info.name }}</td></tr>
+    </table>
+    <table class="result_table">
+        <tbody>
+            {% for split in splits %}
+            <tr>
+                <td>{{ split.point }}</td>
+                <td>{{ split.pass_clock }}</td>
+                <td>{{ split.net_time }}</td>
+                <td>{{ split.pace }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</body>
+</html>

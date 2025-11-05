@@ -1,25 +1,24 @@
 from config.constants import STANDARD_DISTANCES, FULL_KM, HALF_KM, KM_RX,FINISH_KEYWORDS_EN, FINISH_KEYWORDS_KO
 import re
+import math
 
 def km_from_label(label: str) -> float | None:
     if not label:
         return None
-    # e.g., "5km", "5.0km", "10.5 km"
-    m = re.search(r"(\d+(?:\.\d+)?)\s*km", label, re.I)
-    if m:
-        try:
-            return float(m.group(1))
-        except Exception:
-            return None
     
-    # 숫자만 있는 경우 (e.g., "42.195")
-    m = re.fullmatch(r"(\d+(?:\.\d+)?)", label.strip())
+    s = label.lower().strip()
+
+    if "start" in s or "시작" in s: return 0.0
+    if "full" in s: return 42.195
+    if "half" in s: return 21.0975
+    
+    m = re.search(r'^(\d+(?:\.\d+)?)\s*(?:k|km)?$', s)
     if m:
         try:
             return float(m.group(1))
         except Exception:
-            return None
-    # Section N → 숫자만 추정치로 넣지 말고 None 유지(거리 모름)
+            pass
+            
     return None
 
 def snap_distance(km: float|None) -> float|None:
@@ -116,10 +115,10 @@ _WS_RE   = re.compile(r"\s+")
 def _clean_text(s: str) -> str:
     if not isinstance(s, str):
         return ""
-    s = _ZWSP_RE.sub("", s)          # 제로폭 문자 제거
-    s = s.replace("\xa0", " ")       # NBSP 정규화
+    s = _ZWSP_RE.sub("", s)
+    s = s.replace("\xa0", " ")
     s = s.strip()
-    s = _WS_RE.sub(" ", s)           # 연속 공백 1칸
+    s = _WS_RE.sub(" ", s)
     return s
 
 def is_finish_label(label: str) -> bool:
@@ -128,7 +127,6 @@ def is_finish_label(label: str) -> bool:
     return any(k in raw for k in FINISH_KEYWORDS_KO) or any(k in low for k in FINISH_KEYWORDS_EN)
 
 def ensure_finish_label(splits, race_total_km=None):
-    """마지막 스플릿이 완주로 간주되면 point_label을 Finish로 보강."""
     if not isinstance(splits, list) or not splits:
         return splits
     last = splits[-1]
@@ -148,9 +146,66 @@ def ensure_finish_label(splits, race_total_km=None):
     else:
         target = None
 
-    # 거리 기반 판정
     if target is not None and kmf is not None and kmf >= target - 1.0:
         last["point_label"] = "Finish"
     elif target is None and kmf is not None and 41.5 <= kmf <= 43.0:
         last["point_label"] = "Finish"
     return splits
+
+def haversine_distance(lon1, lat1, lon2, lat2):
+    R = 6371
+    lat1_rad = math.radians(lat1)
+    lon1_rad = math.radians(lon1)
+    lat2_rad = math.radians(lat2)
+    lon2_rad = math.radians(lon2)
+    dlon = lon2_rad - lon1_rad
+    dlat = lat2_rad - lat1_rad
+    a = math.sin(dlat / 2)**2 + math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(dlon / 2)**2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    distance = R * c
+    return distance
+
+def calculate_bearing(lon1, lat1, lon2, lat2):
+    lat1_rad = math.radians(lat1)
+    lon1_rad = math.radians(lon1)
+    lat2_rad = math.radians(lat2)
+    lon2_rad = math.radians(lon2)
+    dLon = lon2_rad - lon1_rad
+    y = math.sin(dLon) * math.cos(lat2_rad)
+    x = math.cos(lat1_rad) * math.sin(lat2_rad) - math.sin(lat1_rad) * math.cos(lat2_rad) * math.cos(dLon)
+    bearing_rad = math.atan2(y, x)
+    return math.degrees(bearing_rad)
+
+def find_destination_point(lon, lat, bearing, distance_km):
+    R = 6371
+    lat_rad = math.radians(lat)
+    lon_rad = math.radians(lon)
+    bearing_rad = math.radians(bearing)
+    lat2_rad = math.asin(math.sin(lat_rad) * math.cos(distance_km / R) +
+                         math.cos(lat_rad) * math.sin(distance_km / R) * math.cos(bearing_rad))
+    lon2_rad = lon_rad + math.atan2(math.sin(bearing_rad) * math.sin(distance_km / R) * math.cos(lat_rad),
+                                     math.cos(distance_km / R) - math.sin(lat_rad) * math.sin(lat2_rad))
+    return [math.degrees(lon2_rad), math.degrees(lat2_rad)]
+
+def densify_gpx_track(coordinates: list, step_m: float = 10.0):
+    if not coordinates or len(coordinates) < 2:
+        return coordinates
+    new_track = [coordinates[0]]
+    step_km = step_m / 1000.0
+    for i in range(len(coordinates) - 1):
+        p1 = coordinates[i]
+        p2 = coordinates[i+1]
+        lon1, lat1 = p1
+        lon2, lat2 = p2
+        segment_dist_km = haversine_distance(lon1, lat1, lon2, lat2)
+        if segment_dist_km * 1000 <= step_m:
+            new_track.append(p2)
+            continue
+        num_steps = int(segment_dist_km * 1000 / step_m)
+        bearing = calculate_bearing(lon1, lat1, lon2, lat2)
+        current_pos = p1
+        for _ in range(num_steps):
+            current_pos = find_destination_point(current_pos[0], current_pos[1], bearing, step_km)
+            new_track.append(current_pos)
+        new_track.append(p2)
+    return new_track

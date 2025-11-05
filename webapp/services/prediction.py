@@ -3,13 +3,13 @@
 
 from typing import List, Dict, Optional
 import json
-from datetime import datetime, timezone, date
+from datetime import datetime, timezone, date, timedelta
 import math
 import re
 
-from config.constants import FINISH_KEYWORDS_KO, FINISH_KEYWORDS_EN, DISTANCE_TOLERANCE
+from config.constants import FINISH_KEYWORDS_KO, FINISH_KEYWORDS_EN, DISTANCE_TOLERANCE, START_KEYWORDS_KO, START_KEYWORDS_EN
 from utils.time_utils import looks_time, sec_from_mmss, eta_from_clock, sec_per_km
-from utils.distance_utils import km_from_label, snap_distance, ensure_finish_label
+from utils.distance_utils import km_from_label, snap_distance, ensure_finish_label, haversine_distance
 
 # --- 로컬 정규화 유틸 ---
 _ZWSP_RE = re.compile(r"[\u200b\u200c\u200d\uFEFF]")
@@ -26,23 +26,38 @@ def _is_finish_label(label: Optional[str]) -> bool:
     low = raw.lower()
     return any(k in raw for k in FINISH_KEYWORDS_KO) or any(k in low for k in FINISH_KEYWORDS_EN)
 
+def _is_start_label(label: Optional[str]) -> bool:
+    raw = _clean(label)
+    low = raw.lower()
+    return any(k in raw for k in START_KEYWORDS_KO) or any(k in low for k in START_KEYWORDS_EN)
+
 # --- New Helpers for Location Prediction ---
-def _haversine_distance(lon1, lat1, lon2, lat2):
-    R = 6371  # Radius of Earth in kilometers
+
+
+def _find_point_at_distance(linestring_coords: list, target_dist_km: float) -> Optional[list]:
+    if not linestring_coords:
+        return None
     
-    lat1_rad = math.radians(lat1)
-    lon1_rad = math.radians(lon1)
-    lat2_rad = math.radians(lat2)
-    lon2_rad = math.radians(lon2)
-    
-    dlon = lon2_rad - lon1_rad
-    dlat = lat2_rad - lat1_rad
-    
-    a = math.sin(dlat / 2)**2 + math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(dlon / 2)**2
-    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-    
-    distance = R * c
-    return distance
+    cumulative_dist = 0.0
+    for i in range(len(linestring_coords) - 1):
+        p1 = linestring_coords[i]
+        p2 = linestring_coords[i+1]
+        
+        segment_dist = haversine_distance(p1[0], p1[1], p2[0], p2[1])
+        
+        if cumulative_dist + segment_dist >= target_dist_km:
+            # Target is in this segment
+            dist_into_segment = target_dist_km - cumulative_dist
+            ratio = dist_into_segment / segment_dist if segment_dist > 0 else 0
+            
+            lon = p1[0] + ratio * (p2[0] - p1[0])
+            lat = p1[1] + ratio * (p2[1] - p1[1])
+            return [lon, lat]
+            
+        cumulative_dist += segment_dist
+        
+    return linestring_coords[-1] # Target is beyond the end, return last point
+
 
 STANDARD_SPLIT_ORDER = ["Start", "3K", "5K", "10K", "15K", "20K", "Half", "25K", "30K", "32K", "35K", "40K", "Finish"]
 
@@ -79,21 +94,25 @@ class PredictionService:
         try:
             course_data = json.loads(course_geo_json_str)
             split_points_coords = course_data.get("properties", {}).get("split_points")
-            if not split_points_coords:
+            linestring_coords = course_data.get("geometry", {}).get("coordinates")
+            if not split_points_coords or not linestring_coords:
                 return None
         except (json.JSONDecodeError, AttributeError):
             return None
 
         last_runner_split = splits[-1]
         last_split_label = _clean(last_runner_split.get("point_label", ""))
+        last_split_km = km_from_label(last_split_label)
+        if last_split_km is None:
+            return None
 
         try:
-            last_split_index = STANDARD_SPLIT_ORDER.index(last_split_label)
+            last_split_index_in_order = STANDARD_SPLIT_ORDER.index(last_split_label)
         except ValueError:
             return None
         
         next_split_label = None
-        for i in range(last_split_index + 1, len(STANDARD_SPLIT_ORDER)):
+        for i in range(last_split_index_in_order + 1, len(STANDARD_SPLIT_ORDER)):
             potential_next = STANDARD_SPLIT_ORDER[i]
             if potential_next in split_points_coords:
                 next_split_label = potential_next
@@ -102,38 +121,38 @@ class PredictionService:
         if not next_split_label:
             return None
 
-        last_coords = split_points_coords.get(last_split_label)
-        next_coords = split_points_coords.get(next_split_label)
-
-        if not last_coords or not next_coords:
+        next_split_km = km_from_label(next_split_label)
+        if next_split_km is None:
             return None
 
-        last_lon, last_lat = last_coords
-        next_lon, next_lat = next_coords
+        distance_between_splits = next_split_km - last_split_km
+        if distance_between_splits <= 0:
+            return None
 
         pass_clock_str = _clean(last_runner_split.get("pass_clock"))
         try:
             today = date.today()
-            pass_datetime = datetime.fromisoformat(f"{today}T{pass_clock_str}")
+            pass_datetime = datetime.combine(today, datetime.strptime(pass_clock_str, '%H:%M:%S').time())
+            if pass_datetime > (datetime.now() + timedelta(hours=1)):
+                pass_datetime -= timedelta(days=1)
             pass_datetime = pass_datetime.astimezone()
             time_since_last_split = (datetime.now(timezone.utc) - pass_datetime.astimezone(timezone.utc)).total_seconds()
+            if time_since_last_split < 0:
+                time_since_last_split = 0
         except (ValueError, TypeError):
             return None
 
-        if time_since_last_split < 0: time_since_last_split = 0
-
-        distance_to_next = _haversine_distance(last_lon, last_lat, next_lon, next_lat)
-        time_to_next_split = distance_to_next * avg_pace_spk
-        
-        if time_to_next_split <= 0:
-            progress_ratio = 1.0
-        else:
-            progress_ratio = time_since_last_split / time_to_next_split
-        
+        time_to_next_split = distance_between_splits * avg_pace_spk
+        progress_ratio = time_since_last_split / time_to_next_split if time_to_next_split > 0 else 1.0
         progress_ratio = max(0.0, min(1.0, progress_ratio))
 
-        current_lon = last_lon + progress_ratio * (next_lon - last_lon)
-        current_lat = last_lat + progress_ratio * (next_lat - last_lat)
+        current_dist_km = last_split_km + progress_ratio * distance_between_splits
+
+        current_coords = _find_point_at_distance(linestring_coords, current_dist_km)
+        if not current_coords:
+            return None
+            
+        current_lon, current_lat = current_coords
 
         return {
             "current_location": {
@@ -144,10 +163,11 @@ class PredictionService:
                 "progress_ratio": progress_ratio,
                 "time_since_last_split": time_since_last_split,
                 "time_to_next_split": time_to_next_split,
-                "distance_to_next": distance_to_next,
+                "distance_to_next": distance_between_splits, # Note: this is distance between major splits
                 "last_split": last_split_label,
                 "next_split": next_split_label,
-                "avg_pace_spk": avg_pace_spk
+                "avg_pace_spk": avg_pace_spk,
+                "current_dist_km": current_dist_km
             }
         }
 
@@ -178,9 +198,13 @@ class PredictionService:
         use_spk = last_split_pace_spk or (sum(psecs) / len(psecs) if psecs else None)
         
         if use_spk is None:
-            return {"finished": False, "status_text": "주행중",
-                    "next_point_km": None, "next_point_eta": None,
-                    "finish_eta": None, "finish_net_pred": None, "avg_pace_spk": None}
+            # If only a start split exists, assume a default pace of 5:00/km
+            if len(splits) == 1 and _is_start_label(splits[0].get("point_label")):
+                use_spk = 300  # 5 * 60 seconds
+            else:
+                return {"finished": False, "status_text": "주행중",
+                        "next_point_km": None, "next_point_eta": None,
+                        "finish_eta": None, "finish_net_pred": None, "avg_pace_spk": None}
         
         last_km = km_from_label(_clean(last_split.get("point_label"))) or last_split.get("point_km") or 0.0
         remain_fin = max(0.0, (total_km or 0.0) - float(last_km))

@@ -12,7 +12,7 @@ let runnerMarkers = {};
 let participants = [];
 let marathonData = null;
 
-let REFRESH_INTERVAL = 30000; // Default 30 seconds
+let REFRESH_INTERVAL = 1000; // Default 1 second
 let refreshTimer = null;
 
 const $ = (selector) => document.querySelector(selector);
@@ -40,7 +40,7 @@ function bindEventListeners() {
         b.addEventListener('click', () => {
             document.querySelectorAll('.segbtn').forEach(x => x.classList.remove('active'));
             b.classList.add('active');
-            REFRESH_INTERVAL = Number(b.dataset.sec || 30) * 1000;
+            REFRESH_INTERVAL = Number(b.dataset.sec || 1) * 1000;
             setupAutoRefresh(); // Reset timer with new interval
         });
     });
