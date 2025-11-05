@@ -235,7 +235,6 @@ function renderGroupList() {
         div.style.cursor = 'pointer';
         div.innerHTML = `
             <h3>${g.marathon_name} @ ${g.name}</h3>
-            <div class="small muted">참여 코드: ${g.join_code}</div>
         `;
         div.addEventListener('click', () => {
             const enteredCode = prompt(`'${g.name}' 그룹에 참여하려면 참여 코드를 입력하세요.`);
