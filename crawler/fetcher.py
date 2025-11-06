@@ -1,6 +1,7 @@
 import urllib, time, re
 import traceback
 from typing import Optional
+import requests
 
 from bs4 import BeautifulSoup
 from utils.network_utils import (
@@ -45,18 +46,21 @@ def fetch(url: str, timeout: int = 10, verify: Optional[bool] = None) -> str:
 
         # 2) requests 세션으로 폴백
         s = get_session()                      # ✅ 여기서 항상 초기화 보장
-        r = s.get(url2, timeout=timeout, verify=verify)
-        r.raise_for_status()
-        # 인코딩 추정 (EUC-KR 등)
-        r.encoding = r.apparent_encoding or r.encoding
-        # _dbg(f"requests_get success host={host} status={r.status_code} enc={r.encoding}")
-        return r.text
+        try:
+            r = s.get(url2, timeout=timeout, verify=verify)
+            r.raise_for_status()
+            # 인코딩 추정 (EUC-KR 등)
+            r.encoding = r.apparent_encoding or r.encoding
+            # _dbg(f"requests_get success host={host} status={r.status_code} enc={r.encoding}")
+            return r.text
+        except requests.exceptions.HTTPError as e:
+            _dbg(f"HTTPError for {url}: {e})")
+            return ""
 
     except Exception as e:
         traceback.print_exc()
         _dbg(f"fetch failed url={url}: {e}")
-        # 실패는 상위에서 핸들할 수 있게 예외 그대로 던진다
-        raise
+        return ""
 
 def fetch_cached(url: str, timeout: int = 10, verify: Optional[bool] = None) -> str:
     """캐싱이 적용된 fetch"""

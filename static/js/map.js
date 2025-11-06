@@ -3,16 +3,15 @@ document.addEventListener('DOMContentLoaded', () => {
     if (marathonId) {
         initFullMap(marathonId);
     }
-    // Theme is initialized in initFullMap after binding listeners
 });
 
 let map = null;
-let splitPoints = {};
+let currentCourse = null;
 let runnerMarkers = {};
 let participants = [];
 let marathonData = null;
 
-let REFRESH_INTERVAL = 1000; // Default 1 second
+let REFRESH_INTERVAL = 1000;
 let refreshTimer = null;
 
 const $ = (selector) => document.querySelector(selector);
@@ -41,7 +40,7 @@ function bindEventListeners() {
             document.querySelectorAll('.segbtn').forEach(x => x.classList.remove('active'));
             b.classList.add('active');
             REFRESH_INTERVAL = Number(b.dataset.sec || 1) * 1000;
-            setupAutoRefresh(); // Reset timer with new interval
+            setupAutoRefresh();
         });
     });
 
@@ -78,35 +77,87 @@ async function manualRefresh() {
     await refreshAllParticipantData(window.MARATHON_ID);
 }
 
+function clearMap() {
+    if (map) {
+        map.eachLayer(layer => {
+            if (!!layer.toGeoJSON) { // It's a vector layer
+                map.removeLayer(layer);
+            }
+        });
+        // Also clear tile layers if you want to fully reset
+    }
+    runnerMarkers = {};
+}
+
+function renderCourse(course) {
+    clearMap();
+    currentCourse = course;
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+    }).addTo(map);
+
+    if (course && course.course_geo_json) {
+        const geoJsonFeature = course.course_geo_json;
+        const geoJsonLayer = L.geoJSON(geoJsonFeature).addTo(map);
+        map.fitBounds(geoJsonLayer.getBounds());
+
+        if (geoJsonFeature.properties && geoJsonFeature.properties.split_points) {
+            renderSplitPointMarkers(geoJsonFeature.properties.split_points);
+        }
+    }
+    updateRunnerMarkers(); // Redraw runners on the new course
+}
+
+function createCourseSelector(courses) {
+    const container = $('#course-selector-container');
+    if (!courses || courses.length <= 1) {
+        container.style.display = 'none';
+        return;
+    }
+
+    const select = document.createElement('select');
+    select.className = 'input';
+    courses.forEach(course => {
+        const option = document.createElement('option');
+        option.value = course.id;
+        option.textContent = course.name;
+        select.appendChild(option);
+    });
+
+    select.addEventListener('change', (e) => {
+        const selectedCourseId = parseInt(e.target.value, 10);
+        const selectedCourse = marathonData.courses.find(c => c.id === selectedCourseId);
+        if (selectedCourse) {
+            renderCourse(selectedCourse);
+        }
+    });
+
+    container.appendChild(select);
+}
+
 async function initFullMap(marathonId) {
     try {
         bindEventListeners();
         initTheme();
 
-        // 1. Fetch marathon data (for name and course)
         marathonData = await api(`/api/marathons/${marathonId}/map_data`);
 
-        // 2. Initialize map
         map = L.map('map');
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-        }).addTo(map);
 
-        // 3. Draw course and split points
-        if (marathonData.course_geo_json) {
-            const geoJsonFeature = marathonData.course_geo_json;
-            const geoJsonLayer = L.geoJSON(geoJsonFeature).addTo(map);
-            map.fitBounds(geoJsonLayer.getBounds());
-
-            if (geoJsonFeature.properties && geoJsonFeature.properties.split_points) {
-                splitPoints = geoJsonFeature.properties.split_points;
-                renderSplitPointMarkers();
-            }
+        if (marathonData.courses && marathonData.courses.length > 0) {
+            createCourseSelector(marathonData.courses);
+            renderCourse(marathonData.courses[0]); // Render the first course by default
+        } else {
+            // Handle case with no courses
+            map.setView([37.5665, 126.9780], 13); // Default to Seoul
+             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+            }).addTo(map);
         }
 
-        // 4. Initial data load and setup refresh
-        await manualRefresh(); // Initial load
-        setupAutoRefresh(); // Start the timer
+        await manualRefresh();
+        setupAutoRefresh();
 
     } catch (error) {
         console.error('Map initialization failed:', error);
@@ -116,10 +167,7 @@ async function initFullMap(marathonId) {
 async function refreshAllParticipantData(marathonId) {
     if (!marathonId) return;
     try {
-        // 1. Get all participants for the marathon
         participants = await api(`/api/marathons/${marathonId}/participants`);
-
-        // 2. Fetch detailed data for each
         const promises = participants.map(p =>
             api(`/api/participant_data?participant_id=${p.id}`).then(data => {
                 p._last = data;
@@ -128,16 +176,13 @@ async function refreshAllParticipantData(marathonId) {
             })
         );
         await Promise.all(promises);
-
-        // 3. Update markers
         updateRunnerMarkers();
-
     } catch (error) {
         console.error('Failed to refresh participant data:', error);
     }
 }
 
-function renderSplitPointMarkers() {
+function renderSplitPointMarkers(splitPoints) {
     if (!map) return;
     for (const label in splitPoints) {
         const coords = splitPoints[label];
@@ -152,8 +197,9 @@ function renderSplitPointMarkers() {
 }
 
 function updateRunnerMarkers() {
-    if (!map || !Object.keys(splitPoints).length) return;
+    if (!map || !currentCourse || !currentCourse.course_geo_json) return;
 
+    const splitPoints = currentCourse.course_geo_json.properties.split_points || {};
     const activeRunners = new Set();
 
     const runnerIcon = L.icon({
@@ -167,12 +213,10 @@ function updateRunnerMarkers() {
         const last = p._last;
         let latLng = null;
 
-        // New: Use interpolated location if available
         if (last && last.prediction && last.prediction.current_location) {
             const loc = last.prediction.current_location;
             latLng = [loc.lat, loc.lon];
         } 
-        // Logic for finished runners
         else if (last && last.prediction && last.prediction.finished) {
             const finishLabels = ['Finish', 'finish', '골인', '완주', '도착'];
             let finishPoint = null;
@@ -187,7 +231,6 @@ function updateRunnerMarkers() {
                 latLng = [coords[1], coords[0]];
             }
         } 
-        // Logic for runners at a static split point
         else if (last && last.splits && last.splits.length) {
             const lastSplit = last.splits[last.splits.length - 1];
             const splitLabel = lastSplit.point_label;
@@ -207,7 +250,6 @@ function updateRunnerMarkers() {
         }
     });
 
-    // Remove markers for inactive runners
     for (const runnerId in runnerMarkers) {
         if (!activeRunners.has(parseInt(runnerId))) {
             runnerMarkers[runnerId].remove();

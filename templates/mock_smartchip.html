@@ -2,23 +2,85 @@
 <head>
     <title>SmartChip Mock</title>
     <meta http-equiv="refresh" content="5">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {
+            background: #000000;
+            font-family: 'Malgun Gothic', '맑은 고딕', sans-serif;
+            color: #bfbfbf;
+            margin: 0;
+            padding: 15px;
+        }
+        .wrap {
+            width: 100%;
+            max-width: 980px;
+            margin: 0 auto;
+        }
+        .runner_info_box {
+            text-align: center;
+            padding: 20px 0;
+        }
+        .result_bib {
+            font-size: 28px;
+            font-weight: bold;
+            color: #08FF00;
+        }
+        .result_name {
+            font-size: 22px;
+            font-weight: bold;
+            color: white;
+        }
+        .result-table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            border: 1px solid #0D0D0D;
+            margin-top: 20px;
+        }
+        .result-table th, .result-table td {
+            border: 1px solid #0D0D0D;
+            padding: 10px;
+            text-align: center;
+        }
+        .result-table th {
+            background: #222 !important;
+            color: #FFFFFF;
+            font-weight: bold;
+            padding: 12px;
+        }
+        .result-table td {
+            background: #181818 !important;
+            color: #08FF00;
+            font-weight: bold;
+        }
+    </style>
 </head>
 <body>
-    <table>
-        <tr><td class="result_bib">{{ runner_info.bib }}</td></tr>
-        <tr><td class="result_name">{{ runner_info.name }}</td></tr>
-    </table>
-    <table class="result_table">
-        <tbody>
-            {% for split in splits %}
-            <tr>
-                <td>{{ split.point }}</td>
-                <td>{{ split.pass_clock }}</td>
-                <td>{{ split.net_time }}</td>
-                <td>{{ split.pace }}</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
+    <div class="wrap">
+        <div class="runner_info_box">
+            <div class="result_name">{{ runner_info.name }}</div>
+            <div class="result_bib">{{ runner_info.bib }}</div>
+        </div>
+        <table class="result-table">
+            <thead>
+                <tr>
+                    <th>구간</th>
+                    <th>통과시간</th>
+                    <th>기록</th>
+                    <th>페이스</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for split in splits %}
+                <tr>
+                    <td>{{ split.point }}</td>
+                    <td>{{ split.pass_clock }}</td>
+                    <td>{{ split.net_time }}</td>
+                    <td>{{ split.pace }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
 </body>
 </html>

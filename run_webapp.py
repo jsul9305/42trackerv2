@@ -22,7 +22,7 @@ def main():
     print("\n[1/2] Initializing database...")
     init_database()
     migrate_database()
-    print("✓ Database ready")
+    print("Database ready")
     
     # 2. Flask 앱 생성 및 실행
     print(f"\n[2/2] Starting web server...")

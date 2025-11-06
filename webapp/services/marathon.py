@@ -73,12 +73,10 @@ class MarathonService:
         name: str,
         url_template: str,
         usedata: Optional[str] = None,
-        total_distance_km: float = 21.1,
         refresh_sec: int = 60,
         enabled: bool = True,
         cert_url_template: Optional[str] = None,
-        event_date: Optional[str] = None,
-        course_geo_json: Optional[str] = None
+        event_date: Optional[str] = None
     ) -> Dict:
         if not name or not name.strip():
             return {'success': False, 'error': '대회명은 필수입니다'}
@@ -95,22 +93,19 @@ class MarathonService:
                 cursor = conn.execute(
                     """INSERT INTO marathons(
                         name, url_template, usedata, 
-                        total_distance_km, refresh_sec, enabled,
-                        cert_url_template, event_date, join_code, updated_at,
-                        course_geo_json
-                    ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        refresh_sec, enabled,
+                        cert_url_template, event_date, join_code, updated_at
+                    ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         name.strip(),
                         url_template.strip(),
                         usedata.strip() if usedata else None,
-                        total_distance_km,
                         refresh_sec,
                         1 if enabled else 0,
                         cert_url_template.strip() if cert_url_template else None,
                         event_date,
                         join_code,
-                        datetime.now().isoformat(),
-                        course_geo_json
+                        datetime.now().isoformat()
                     )
                 )
                 conn.commit()
@@ -161,8 +156,8 @@ class MarathonService:
     ) -> Dict:
         allowed_fields = {
             'name', 'url_template', 'usedata',
-            'total_distance_km', 'refresh_sec', 'enabled',
-            'cert_url_template', 'event_date', 'course_geo_json'
+            'refresh_sec', 'enabled',
+            'cert_url_template', 'event_date'
         }
         
         fields = []

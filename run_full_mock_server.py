@@ -3,6 +3,41 @@ from datetime import datetime, timedelta
 from flask import Flask, Response, request, redirect, url_for, jsonify, render_template
 import copy
 
+# --- 0. CSS --- (for the admin page)
+ADMIN_CSS = """
+:root{
+    --bg:#0b0f17; --card:#111827; --muted:#9ca3af; --text:#e5e7eb;
+    --accent:#22c55e; --accent2:#60a5fa; --warn:#f59e0b; --danger:#ef4444;
+    --border:#1f2937;
+}
+*{box-sizing:border-box}
+body{margin:0; background:var(--bg); color:var(--text);
+    font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;}
+a{color:#93c5fd; text-decoration:none}
+.wrap{max-width:1100px; margin:0 auto; padding:16px 16px 80px 16px;}
+
+.btn{display:inline-flex; align-items:center; justify-content:center; gap:8px;
+    padding:10px 14px; border-radius:12px; border:1px solid var(--border);
+    background:#0f1624; color:var(--text); font-weight:700; cursor:pointer}
+.btn.primary{background:#111b2d; border-color:#274060}
+
+.card{background:var(--card); border:1px solid var(--border); border-radius:16px; padding:14px;
+    box-shadow:0 4px 10px rgba(0,0,0,.25);}
+.card h3{margin:0 0 8px; font-size:16px}
+
+table { border-collapse: collapse; width: 100%; margin-top: 12px; }
+tr { border-bottom: 1px solid var(--border); }
+th, td { border: 0; padding: 10px; text-align: left; }
+thead th { background-color: var(--card); font-size: 12px; color: var(--muted); }
+
+.form-container { margin-top: 20px; padding: 20px; border-radius: 16px; background-color: var(--card); border:1px solid var(--border); }
+.form-container h2 { margin: 0 0 12px; }
+.field{display:flex; flex-direction:column; gap:4px; flex:1;}
+.field label{font-size:12px; color:var(--muted)}
+.input, select{ padding:12px; border-radius:12px; border:1px solid var(--border); background:#0f1624; color:var(--text); width:100%; font-size:14px; }
+.row{display:flex; gap:8px; flex-wrap:wrap; align-items:flex-end}
+"""
+
 # --- 1. Flask App Setup ---
 app = Flask(__name__)
 
@@ -60,8 +95,26 @@ FULL_RACE_DATA = {
             ("Finish", "04:30:00", "7:30"),
         ]
     },
+    ("smartchip", "404"): {
+        "name": "간호민",
+        "bib": "404",
+        "splits": [
+            ("Start", "00:00:00", "0:00"),
+            ("5K", "00:28:00", "5:36"),
+            ("10K", "00:58:00", "6:00"),
+            ("15K", "01:28:00", "6:00"),
+            ("20K", "02:00:00", "6:24"),
+            ("25K", "02:32:00", "6:24"),
+            ("30K", "03:05:00", "6:36"),
+            ("35K", "03:40:00", "7:00"),
+            ("40K", "04:15:00", "7:00"),
+            ("45K", "04:50:00", "7:00"),
+            ("50K", "05:25:00", "7:00"),
+            ("Finish", "05:40:00", "7:30"),
+        ]
+    },
     ("myresult", "1157"): {
-        "name": "기용은",
+        "name": "가mock",
         "bib": "1157",
         "splits": [
             ("Start", "00:00:00", "00:00:00"),
@@ -183,21 +236,30 @@ def render_smartchip_html(bib):
     if not state:
         return "Runner state not found", 404
 
+    all_splits_data = runner_info["splits"]
     visible_splits_count = state["visible_splits"]
     pass_times = state.get("split_pass_times", {})
     
-    visible_splits_data = runner_info["splits"][:visible_splits_count]
     splits_for_template = []
-    for i, split_data in enumerate(visible_splits_data):
+    for i, split_data in enumerate(all_splits_data):
         point, net_time, pace = split_data
-        pass_time_obj = pass_times.get(i)
-        pass_clock = pass_time_obj.strftime('%H:%M:%S') if pass_time_obj else "N/A"
-        splits_for_template.append({
-            "point": point,
-            "pass_clock": pass_clock,
-            "net_time": net_time,
-            "pace": pace
-        })
+        
+        if i < visible_splits_count:
+            pass_time_obj = pass_times.get(i)
+            pass_clock = pass_time_obj.strftime('%H:%M:%S') if pass_time_obj else "N/A"
+            splits_for_template.append({
+                "point": point,
+                "pass_clock": pass_clock,
+                "net_time": net_time,
+                "pace": pace
+            })
+        else:
+            splits_for_template.append({
+                "point": point,
+                "pass_clock": "-",
+                "net_time": "-",
+                "pace": "-"
+            })
 
     return render_template("mock_smartchip.html", runner_info=runner_info, splits=splits_for_template)
 
@@ -470,6 +532,23 @@ def mock_spct(subpath):
 @app.route("/smartchip/<path:subpath>")
 def mock_smartchip(subpath):
     bib = subpath.split('/')[-1]
+    return render_smartchip_html(bib)
+
+@app.route("/return_data_livephoto.asp")
+def mock_smartchip_new():
+    nameorbibno = request.args.get('nameorbibno')
+    
+    # Find the runner by name or bib
+    runner_key = None
+    for key, data in FULL_RACE_DATA.items():
+        if key[0] == 'smartchip' and (data['name'] == nameorbibno or data['bib'] == nameorbibno):
+            runner_key = key
+            break
+            
+    if not runner_key:
+        return "Runner not found", 404
+        
+    bib = runner_key[1]
     return render_smartchip_html(bib)
 
 if __name__ == "__main__":

@@ -11,18 +11,25 @@ CREATE TABLE IF NOT EXISTS marathons (
   name TEXT NOT NULL,
   url_template TEXT NOT NULL,
   usedata TEXT,
-  total_distance_km REAL NOT NULL DEFAULT 21.1,
   refresh_sec INTEGER NOT NULL DEFAULT 60,
   enabled INTEGER NOT NULL DEFAULT 1,
   cert_url_template TEXT,
   event_date TEXT,
   updated_at TEXT,
-  course_geo_json TEXT,
   -- 아래 4개 컬럼은 과거 DB에 없을 수 있음 (마이그레이션에서 보장)
   join_code TEXT UNIQUE,
   join_code_expires_at DATETIME,
   join_code_try_window_start DATETIME,
   join_code_try_count INTEGER DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS courses (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  marathon_id INTEGER NOT NULL REFERENCES marathons(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  total_distance_km REAL NOT NULL,
+  course_geo_json TEXT,
+  UNIQUE(marathon_id, name)
 );
 
 CREATE TABLE IF NOT EXISTS groups (
@@ -71,7 +78,19 @@ CREATE TABLE IF NOT EXISTS assets (
   seen_at TEXT,
   UNIQUE(participant_id, kind)
 );
+
+CREATE TABLE IF NOT EXISTS url_templates (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL UNIQUE,
+  template TEXT NOT NULL
+);
 """
+
+DEFAULT_TEMPLATES = {
+    "Smartchip": "https://smartchip.co.kr/return_data_livephoto.asp?nameorbibno={nameorbibno}&usedata={usedata}",
+    "SPCT": "http://time.spct.co.kr/m2.php?{usedata}&BIB_NO={nameorbibno}",
+    "MyResult": "https://myresult.co.kr/{usedata}/{nameorbibno}",
+}
 
 @contextmanager
 def get_db() -> Generator[sqlite3.Connection, None, None]:
@@ -94,6 +113,13 @@ def init_database():
     """데이터베이스 초기화"""
     with get_db() as conn:
         conn.executescript(SCHEMA_SQL)
+        
+        # Insert default templates if the table is empty
+        count = conn.execute("SELECT COUNT(*) FROM url_templates").fetchone()[0]
+        if count == 0:
+            for name, template in DEFAULT_TEMPLATES.items():
+                conn.execute("INSERT INTO url_templates (name, template) VALUES (?, ?)", (name, template))
+        
         conn.commit()
 
 def migrate_database():
@@ -107,7 +133,6 @@ def migrate_database():
             ("join_code_expires_at", "ALTER TABLE marathons ADD COLUMN join_code_expires_at DATETIME"),
             ("join_code_try_window_start", "ALTER TABLE marathons ADD COLUMN join_code_try_window_start DATETIME"),
             ("join_code_try_count", "ALTER TABLE marathons ADD COLUMN join_code_try_count INTEGER DEFAULT 0"),
-            ("course_geo_json", "ALTER TABLE marathons ADD COLUMN course_geo_json TEXT"),
         ]:
             try:
                 if not _column_exists(conn, "marathons", col):

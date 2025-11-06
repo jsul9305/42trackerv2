@@ -53,15 +53,11 @@
           <input class="input" id="new_name" placeholder="예: 2025 히어로런" />
         </div>
         <div class="field">
-          <label>총거리 (km) — Half는 21.1</label>
-          <input class="input" id="new_total" type="number" inputmode="decimal" placeholder="21.1" value="21.1" />
-        </div>
-      </div>
-      <div class="two" style="margin-top:8px;">
-        <div class="field">
           <label>크롤 주기 (초)</label>
           <input class="input" id="new_refresh" type="number" inputmode="numeric" placeholder="60" value="60" />
         </div>
+      </div>
+      <div class="two" style="margin-top:8px;">
         <div class="field">
           <label>usedata (대회 ID) — 예: 202550000158</label>
           <input class="input mono" id="new_usedata" placeholder="스마트칩 usedata, 없으면 비워둠" />
@@ -70,29 +66,34 @@
           <label>대회 날짜 (선택)</label>
           <input class="input" id="new_event_date" type="date" />
         </div>
-        <div class="field">
-          <label>GPX 파일 (코스 경로)</label>
-          <input class="input" id="new_gpx_file" type="file" accept=".gpx" />
-        </div>
       </div>
       <div class="field" style="margin-top:8px;">
         <label>URL 템플릿</label>
-        <!-- <input class="input mono" id="new_url" placeholder="https://smartchip.co.kr/return_data_livephoto.asp?nameorbibno={nameorbibno}&usedata={usedata}" /> -->
-        <select class="input mono" id="new_url">
-          <option value="https://smartchip.co.kr/return_data_livephoto.asp?nameorbibno={nameorbibno}&usedata={usedata}">Smartchip</option>
-          <option value="http://time.spct.co.kr/m2.php?{usedata}&BIB_NO={nameorbibno}">SPCT</option>
-          <option value="https://myresult.co.kr/{usedata}/{nameorbibno}">MyResult</option>
-        </select>
+        <select class="input mono" id="new_url"></select>
         <div class="small muted">반드시 <b>{nameorbibno}</b>와 <b>{usedata}</b>를 포함해야 함</div>
-        <div class="small muted">
-          https://smartchip.co.kr/return_data_livephoto.asp?nameorbibno={nameorbibno}&usedata={usedata}<br />
-          http://time.spct.co.kr/m2.php?{usedata}&BIB_NO={nameorbibno} / EVENT_NO=2025092102&TargetYear=2025를 Usedata 에 입력<br />
-          https://myresult.co.kr/{usedata}/{nameorbibno}
-        </div>
       </div>
       <div class="row" style="margin-top:10px;">
         <button class="btn primary" onclick="createMarathon()">+ 대회 추가</button>
       </div>
+    </div>
+
+    <!-- URL Template Management -->
+    <div class="card" style="margin-top:12px;">
+        <h3>URL 템플릿 관리</h3>
+        <div id="url-templates-list"></div>
+        <div class="two" style="margin-top:8px;">
+            <div class="field">
+                <label>템플릿 이름</label>
+                <input class="input" id="new_template_name" placeholder="예: MyResult" />
+            </div>
+            <div class="field">
+                <label>URL 템플릿</label>
+                <input class="input mono" id="new_template_string" placeholder="https://myresult.co.kr/{usedata}/{nameorbibno}" />
+            </div>
+        </div>
+        <div class="row" style="margin-top:10px;">
+            <button class="btn" onclick="addUrlTemplate()">+ 템플릿 추가</button>
+        </div>
     </div>
 
     <!-- 2) 대회 목록(카드/인라인 편집 + 참가자 관리) -->

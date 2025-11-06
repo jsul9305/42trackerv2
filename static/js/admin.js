@@ -1,11 +1,5 @@
 let marathons = [];
-
-const URL_TEMPLATES = {
-  "Smartchip": "https://smartchip.co.kr/return_data_livephoto.asp?nameorbibno={nameorbibno}&usedata={usedata}",
-  "SPCT": "http://time.spct.co.kr/m2.php?{usedata}&BIB_NO={nameorbibno}",
-  "MyResult": "https://myresult.co.kr/{usedata}/{nameorbibno}",
-  "TEST_MR": "http://localhost:5002/{usedata}/{nameorbibno}"
-};
+let urlTemplates = [];
 
 function $(id){ return document.getElementById(id); }
 function val(id){ return $(id).value.trim(); }
@@ -31,27 +25,20 @@ function checkTemplate(u){
 /* 1) 새 대회 추가 */
 async function createMarathon(){
   const name = val('new_name');
-  const total = num(val('new_total'), 21.1);
   const refresh = Math.max(5, num(val('new_refresh'), 60));
   const usedata = val('new_usedata') || null;
   const url = val('new_url');
   const event_date = val('new_event_date') || null;
-  const gpx_file_input = $('new_gpx_file');
-  const gpx_file = gpx_file_input.files[0];
 
   if(!name){ toast('대회명 필수'); return; }
   if(!url || !checkTemplate(url)){ toast('URL 템플릿에 {nameorbibno}, {usedata} 포함해야 합니다'); return; }
 
   const formData = new FormData();
   formData.append('name', name);
-  formData.append('total_distance_km', total);
   formData.append('refresh_sec', refresh);
   if (usedata) formData.append('usedata', usedata);
   formData.append('url_template', url);
   if (event_date) formData.append('event_date', event_date);
-  if (gpx_file) {
-    formData.append('gpx_file', gpx_file);
-  }
 
   const r = await fetch('/api/marathons', {
     method:'POST',
@@ -59,9 +46,8 @@ async function createMarathon(){
   });
 
   if(r.ok){
-    $('new_name').value=''; $('new_total').value='21.1';
+    $('new_name').value='';
     $('new_refresh').value='60'; $('new_usedata').value=''; $('new_url').value='';
-    gpx_file_input.value = ''; // Clear the file input
     await loadAll(); toast('대회 추가 완료');
   } else {
     const t = await r.text().catch(()=> '오류'); toast('추가 실패\n'+t);
@@ -114,7 +100,6 @@ function renderList(){
       <div class="small">
         <span class="tag">ID ${m.id}</span>
         <span class="tag">${m.enabled ? '활성' : '비활성'}</span>
-        <span class="tag">${m.total_distance_km}km</span>
         <span class="tag">${m.refresh_sec}s</span>
         ${m.event_date ? `<span class="tag" style="color:var(--accent2)">${m.event_date}</span>` : ''}
       </div>
@@ -134,16 +119,12 @@ function renderList(){
             <input class="input" id="name_${m.id}" value="${escapeHtml(m.name)}" />
           </div>
           <div class="field">
-            <label>총거리 (km)</label>
-            <input class="input" id="total_${m.id}" type="number" inputmode="decimal" value="${m.total_distance_km}" />
+            <label>크롤 주기 (초)</label>
+            <input class="input" id="refresh_${m.id}" type="number" inputmode="numeric" value="${m.refresh_sec}" />
           </div>
         </div>
 
         <div class="two" style="margin-top:8px;">
-          <div class="field">
-            <label>크롤 주기 (초)</label>
-            <input class="input" id="refresh_${m.id}" type="number" inputmode="numeric" value="${m.refresh_sec}" />
-          </div>
           <div class="field">
             <label>usedata (대회 ID)</label>
             <input class="input mono" id="usedata_${m.id}" value="${m.usedata ?? ''}" />
@@ -151,10 +132,6 @@ function renderList(){
           <div class="field">
             <label>대회 날짜 (선택)</label>
             <input class="input" id="event_date_${m.id}" type="date" value="${m.event_date ?? ''}" />
-          </div>
-          <div class="field">
-            <label>GPX 파일 (코스 경로)</label>
-            <input class="input" id="gpx_file_${m.id}" type="file" accept=".gpx" />
           </div>
         </div>
 
@@ -171,6 +148,8 @@ function renderList(){
           </select>
           <button class="btn primary" onclick="saveMarathon(${m.id})">저장</button>
         </div>
+
+        <div id="courses_container_${m.id}" style="margin-top:16px;"></div>
 
         <div class="row" style="margin-top:10px;">
             <div class="field">
@@ -190,19 +169,177 @@ function renderList(){
     `;
 
     wrap.appendChild(card);
+    loadCoursesForMarathon(m.id);
     loadGroupsForMarathon(m.id);
   }
 }
 
+async function loadCoursesForMarathon(marathonId) {
+    const r = await fetch(`/api/marathons/${marathonId}/courses`);
+    const courses = await r.json();
+    renderCourses(marathonId, courses);
+}
+
+function renderCourses(marathonId, courses) {
+    const container = $(`courses_container_${marathonId}`);
+    container.innerHTML = '<h4>코스 목록</h4>';
+
+    if (courses.length > 0) {
+        const list = document.createElement('ul');
+        list.className = 'course-list';
+        courses.forEach(course => {
+            const item = document.createElement('li');
+            item.innerHTML = `
+                <span><strong>${escapeHtml(course.name)}</strong> (${course.total_distance_km}km)</span>
+                <button class="btn danger small" onclick="deleteCourse(${course.id}, ${marathonId})">삭제</button>
+            `;
+            list.appendChild(item);
+        });
+        container.appendChild(list);
+    }
+
+    container.innerHTML += `
+        <h5>새 코스 추가</h5>
+        <div class="two">
+            <div class="field">
+                <label>코스명</label>
+                <input class="input" id="course_name_${marathonId}" placeholder="예: Full Course" />
+            </div>
+            <div class="field">
+                <label>총거리 (km)</label>
+                <input class="input" id="course_total_${marathonId}" type="number" inputmode="decimal" placeholder="42.195" />
+            </div>
+        </div>
+        <div class="field" style="margin-top:8px;">
+            <label>GPX 파일</label>
+            <input class="input" id="course_gpx_${marathonId}" type="file" accept=".gpx" />
+        </div>
+        <div class="row" style="margin-top:10px;">
+            <button class="btn" onclick="addCourse(${marathonId})">+ 코스 추가</button>
+        </div>
+    `;
+}
+
+async function addCourse(marathonId) {
+    const name = val(`course_name_${marathonId}`);
+    const total = num(val(`course_total_${marathonId}`), 0);
+    const gpx_input = $(`course_gpx_${marathonId}`);
+    const gpx_file = gpx_input.files[0];
+
+    if (!name || !total || !gpx_file) {
+        toast('코스명, 총거리, GPX 파일은 필수입니다.');
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append('name', name);
+    formData.append('total_distance_km', total);
+    formData.append('gpx_file', gpx_file);
+
+    const r = await fetch(`/api/marathons/${marathonId}/courses`, {
+        method: 'POST',
+        body: formData
+    });
+
+    if (r.ok) {
+        await loadCoursesForMarathon(marathonId);
+        toast('코스 추가 완료');
+    } else {
+        const t = await r.text().catch(() => '오류');
+        toast('코스 추가 실패\n' + t);
+    }
+}
+
+async function deleteCourse(courseId, marathonId) {
+    if (!confirm('정말 이 코스를 삭제할까요?')) return;
+
+    const r = await fetch(`/api/courses/${courseId}`, { method: 'DELETE' });
+
+    if (r.ok) {
+        await loadCoursesForMarathon(marathonId);
+        toast('코스 삭제 완료');
+    } else {
+        const t = await r.text().catch(() => '오류');
+        toast('코스 삭제 실패\n' + t);
+    }
+}
+
+async function loadUrlTemplates() {
+    const r = await fetch('/api/url_templates');
+    urlTemplates = await r.json();
+    renderUrlTemplates();
+    populateNewUrlSelect();
+}
+
+function renderUrlTemplates() {
+    const container = $('url-templates-list');
+    container.innerHTML = '';
+    if (!urlTemplates.length) {
+        container.innerHTML = '<div class="small muted">저장된 템플릿이 없습니다.</div>';
+        return;
+    }
+
+    const list = document.createElement('ul');
+    list.className = 'template-list';
+    urlTemplates.forEach(template => {
+        const item = document.createElement('li');
+        item.innerHTML = `
+            <span><strong>${escapeHtml(template.name)}:</strong> ${escapeHtml(template.template)}</span>
+            <button class="btn danger small" onclick="deleteUrlTemplate(${template.id})">삭제</button>
+        `;
+        list.appendChild(item);
+    });
+    container.appendChild(list);
+}
+
+async function addUrlTemplate() {
+    const name = val('new_template_name');
+    const template = val('new_template_string');
+
+    if (!name || !template) {
+        toast('템플릿 이름과 URL은 필수입니다.');
+        return;
+    }
+
+    const r = await fetch('/api/url_templates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, template })
+    });
+
+    if (r.ok) {
+        $('new_template_name').value = '';
+        $('new_template_string').value = '';
+        await loadUrlTemplates();
+        toast('템플릿 추가 완료');
+    } else {
+        const t = await r.text().catch(() => '오류');
+        toast('템플릿 추가 실패\n' + t);
+    }
+}
+
+async function deleteUrlTemplate(templateId) {
+    if (!confirm('정말 이 템플릿을 삭제할까요?')) return;
+
+    const r = await fetch(`/api/url_templates/${templateId}`, { method: 'DELETE' });
+
+    if (r.ok) {
+        await loadUrlTemplates();
+        toast('템플릿 삭제 완료');
+    } else {
+        const t = await r.text().catch(() => '오류');
+        toast('템플릿 삭제 실패\n' + t);
+    }
+}
+
 function getUrlTemplateSelect(id, selectedValue) {
   let options = '';
-  for (const name in URL_TEMPLATES) {
-    const value = URL_TEMPLATES[name];
-    const selected = (value === selectedValue) ? 'selected' : '';
-    options += `<option value="${escapeHtml(value)}" ${selected}>${name}</option>`;
+  for (const template of urlTemplates) {
+    const selected = (template.template === selectedValue) ? 'selected' : '';
+    options += `<option value="${escapeHtml(template.template)}" ${selected}>${escapeHtml(template.name)}</option>`;
   }
   // Add an option for the current value if it's not in the standard list
-  if (!Object.values(URL_TEMPLATES).includes(selectedValue)) {
+  if (!urlTemplates.some(t => t.template === selectedValue)) {
       options += `<option value="${escapeHtml(selectedValue)}" selected>Custom</option>`;
   }
   return `<select class="input mono" id="${id}">${options}</select>`;
@@ -274,29 +411,22 @@ async function regenerateCode(mid) {
 
 async function saveMarathon(mid){
   const name = val(`name_${mid}`);
-  const total = num(val(`total_${mid}`), 21.1);
   const refresh = Math.max(5, num(val(`refresh_${mid}`), 60));
   const usedata = val(`usedata_${mid}`) || null;
   const url = val(`url_${mid}`);
   const enabled = Number(val(`enabled_${mid}`)||'1');
   const event_date = val(`event_date_${mid}`) || null;
-  const gpx_file_input = $(`gpx_file_${mid}`);
-  const gpx_file = gpx_file_input.files[0];
 
   if(!name){ toast('대회명 필수'); return; }
   if(!url || !checkTemplate(url)){ toast('URL 템플릿에 {nameorbibno}, {usedata} 포함해야 합니다'); return; }
 
   const formData = new FormData();
   formData.append('name', name);
-  formData.append('total_distance_km', total);
   formData.append('refresh_sec', refresh);
   if (usedata) formData.append('usedata', usedata);
   formData.append('url_template', url);
   formData.append('enabled', enabled);
   if (event_date) formData.append('event_date', event_date);
-  if (gpx_file) {
-    formData.append('gpx_file', gpx_file);
-  }
 
   const r = await fetch(`/api/marathons/${mid}`, {
     method:'PUT',
@@ -349,17 +479,19 @@ async function delParticipant(pid, groupId){
 }
 
 function populateNewUrlSelect() {
-  const select = $('new_url');
-  if (!select) return;
-  select.innerHTML = '';
-  for (const name in URL_TEMPLATES) {
-    const value = URL_TEMPLATES[name];
-    select.innerHTML += `<option value="${escapeHtml(value)}">${name}</option>`;
-  }
+    const select = $('new_url');
+    if (!select) return;
+    select.innerHTML = '';
+    for (const template of urlTemplates) {
+        select.innerHTML += `<option value="${escapeHtml(template.template)}">${escapeHtml(template.name)}</option>`;
+    }
 }
 
-loadAll();
-populateNewUrlSelect();
+
+window.addEventListener('DOMContentLoaded', () => {
+    loadAll();
+    loadUrlTemplates();
+});
 
 $('upload-form').addEventListener('submit', async (e) => {
   e.preventDefault();
