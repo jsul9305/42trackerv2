@@ -96,7 +96,7 @@ FULL_RACE_DATA = {
         ]
     },
     ("smartchip", "404"): {
-        "name": "간호민",
+        "name": "나모그",
         "bib": "404",
         "splits": [
             ("Start", "00:00:00", "0:00"),
